@@ -45,12 +45,34 @@ export interface RayHit {
 
 const CELL = 8;
 
+/** Pseudo-collider reported by ray hits on the terrain. */
+export const TERRAIN_COLLIDER: Collider = {
+  kind: 'box',
+  id: 0,
+  minX: 0,
+  minY: 0,
+  minZ: 0,
+  maxX: 0,
+  maxY: 0,
+  maxZ: 0,
+  blocksSight: true,
+  tag: 'terrain',
+};
+
 export class CollisionWorld {
   private colliders = new Map<number, Collider>();
   private grid = new Map<string, Set<Collider>>();
   private nextId = 1;
   /** Absolute floor: nothing falls below this height. */
   killY = -50;
+  /** Optional height field (open-world terrain). */
+  terrain: { height(x: number, z: number): number } | null = null;
+  /** Water surface height, if the level has water. */
+  waterLevel: number | null = null;
+
+  terrainHeight(x: number, z: number): number {
+    return this.terrain ? this.terrain.height(x, z) : -Infinity;
+  }
 
   addBox(
     minX: number,
@@ -190,6 +212,10 @@ export class CollisionWorld {
    */
   groundHeight(x: number, z: number, r: number, maxY: number): number {
     let best = -Infinity;
+    if (this.terrain) {
+      const th = this.terrain.height(x, z);
+      if (th <= maxY + 1e-4) best = th;
+    }
     for (const c of this.query(x - r, z - r, x + r, z + r, this.scratch)) {
       if (c.maxY > maxY + 1e-4) continue;
       if (c.maxY <= best) continue;
@@ -286,7 +312,40 @@ export class CollisionWorld {
         best = hit;
       }
     }
+    if (this.terrain) {
+      const th = this.rayTerrain(ox, oy, oz, dx, dy, dz, bestT);
+      if (th !== null && th < bestT) {
+        best = { distance: th, nx: 0, ny: 1, nz: 0, collider: TERRAIN_COLLIDER };
+      }
+    }
     return best;
+  }
+
+  /** March a ray against the height field (1 m steps + bisection refine). */
+  private rayTerrain(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxT: number): number | null {
+    const t = this.terrain!;
+    const stepLen = 1;
+    let prevT = 0;
+    let prevAbove = oy - t.height(ox, oz);
+    if (prevAbove < 0) return null; // origin below ground (inside geometry) — ignore
+    for (let s = stepLen; s <= maxT + 1e-6; s += stepLen) {
+      const tt = Math.min(s, maxT);
+      const above = oy + dy * tt - t.height(ox + dx * tt, oz + dz * tt);
+      if (above < 0) {
+        let a = prevT;
+        let b = tt;
+        for (let i = 0; i < 6; i++) {
+          const m = (a + b) / 2;
+          if (oy + dy * m - t.height(ox + dx * m, oz + dz * m) < 0) b = m;
+          else a = m;
+        }
+        return a;
+      }
+      prevT = tt;
+      prevAbove = above;
+    }
+    void prevAbove;
+    return null;
   }
 
   /** True if nothing that blocks sight lies between the two points. */

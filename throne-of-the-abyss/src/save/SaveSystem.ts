@@ -26,6 +26,8 @@ export interface SaveData {
     gateOpen: boolean;
     discoveredRegions: string[];
     readLore: string[];
+    timeOfDay?: number;
+    weather?: string;
   };
   lostEchoes: { amount: number; position: [number, number, number] } | null;
   npcs: Record<string, { state: string }>;

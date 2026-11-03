@@ -1,5 +1,4 @@
-import { DoubleSide, Mesh, MeshToonMaterial, PlaneGeometry, Vector3, type Object3D } from 'three';
-import { toonRamp } from '@/render/Materials';
+import { DoubleSide, Mesh, MeshStandardMaterial, PlaneGeometry, Vector3, type Object3D } from 'three';
 import type { Texture } from 'three';
 
 interface Collider {
@@ -41,7 +40,7 @@ export class CapeCloth {
     this.restX = (width / (cols - 1)) * worldScale;
     this.restY = (length / (rows - 1)) * worldScale;
     const geo = new PlaneGeometry(width, length, cols - 1, rows - 1);
-    const mat = new MeshToonMaterial({ map: texture, gradientMap: toonRamp(), side: DoubleSide, alphaTest: 0.5 });
+    const mat = new MeshStandardMaterial({ map: texture, roughness: 0.95, metalness: 0, side: DoubleSide, alphaTest: 0.5 });
     this.mesh = new Mesh(geo, mat);
     this.mesh.frustumCulled = false;
     this.mesh.castShadow = true;

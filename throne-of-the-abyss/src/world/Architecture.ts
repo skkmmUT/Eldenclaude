@@ -65,6 +65,8 @@ export interface BuildCtx {
     glowViolet: Material;
     banner: Material;
     statue: Material;
+    roof: Material;
+    window: Material;
   };
 }
 
@@ -109,21 +111,21 @@ export function archBetween(b: BuildCtx, a: Vector3, c: Vector3, springY: number
 }
 
 /** Crenellated curtain wall from (x0,z0) to (x1,z1). */
-export function curtainWall(b: BuildCtx, x0: number, z0: number, x1: number, z1: number, height: number, thick = 2): void {
+export function curtainWall(b: BuildCtx, x0: number, z0: number, x1: number, z1: number, height: number, thick = 2, baseY = 0): void {
   const len = Math.hypot(x1 - x0, z1 - z0);
   const cx = (x0 + x1) / 2;
   const cz = (z0 + z1) / 2;
   const alongX = Math.abs(x1 - x0) > Math.abs(z1 - z0);
   const hx = alongX ? len / 2 : thick / 2;
   const hz = alongX ? thick / 2 : len / 2;
-  solidBox(b, cx, height / 2, cz, hx, height / 2, hz);
+  solidBox(b, cx, baseY + height / 2, cz, hx, height / 2, hz);
   // merlons
   const n = Math.floor(len / 2.2);
   for (let i = 0; i < n; i++) {
     const f = (i + 0.5) / n;
     const mx = x0 + (x1 - x0) * f;
     const mz = z0 + (z1 - z0) * f;
-    b.batch.add(new BoxGeometry(alongX ? 1.1 : thick, 1.2, alongX ? thick : 1.1), b.mats.stone, mat4(mx, height + 0.6, mz), true, true, UV);
+    b.batch.add(new BoxGeometry(alongX ? 1.1 : thick, 1.2, alongX ? thick : 1.1), b.mats.stone, mat4(mx, baseY + height + 0.6, mz), true, true, UV);
   }
   // buttresses
   const nb = Math.floor(len / 8);
@@ -131,22 +133,25 @@ export function curtainWall(b: BuildCtx, x0: number, z0: number, x1: number, z1:
     const f = i / nb;
     const bx = x0 + (x1 - x0) * f;
     const bz = z0 + (z1 - z0) * f;
-    b.batch.add(new BoxGeometry(alongX ? 1.2 : thick + 1.6, height * 0.7, alongX ? thick + 1.6 : 1.2), b.mats.stoneDark, mat4(bx, height * 0.35, bz), true, true, UV);
+    b.batch.add(new BoxGeometry(alongX ? 1.2 : thick + 1.6, height * 0.7, alongX ? thick + 1.6 : 1.2), b.mats.stoneDark, mat4(bx, baseY + height * 0.35, bz), true, true, UV);
   }
 }
 
 /** Round tower with crenels and a steep conical roof + spire. */
-export function tower(b: BuildCtx, x: number, z: number, r: number, h: number, roofH: number): void {
-  b.batch.add(new CylinderGeometry(r, r * 1.08, h, 16), b.mats.stone, mat4(x, h / 2, z), true, true, UV);
-  b.batch.add(new CylinderGeometry(r * 1.18, r * 1.05, 1.4, 16), b.mats.stoneDark, mat4(x, h + 0.7, z), true, true, UV);
-  b.batch.add(new ConeGeometry(r * 1.25, roofH, 16), b.mats.stoneDark, mat4(x, h + 1.4 + roofH / 2, z), true, false);
-  b.batch.add(new ConeGeometry(0.15, roofH * 0.35, 6), b.mats.trim, mat4(x, h + 1.4 + roofH + roofH * 0.15, z), false, false);
-  // arrow-slit windows glowing faintly
+export function tower(b: BuildCtx, x: number, z: number, r: number, h: number, roofH: number, baseY = 0, collide = true): void {
+  const y = baseY;
+  b.batch.add(new CylinderGeometry(r, r * 1.08, h, 16), b.mats.stone, mat4(x, y + h / 2, z), true, true, UV);
+  b.batch.add(new CylinderGeometry(r * 1.18, r * 1.05, 1.4, 16), b.mats.stoneDark, mat4(x, y + h + 0.7, z), true, true, UV);
+  if (roofH > 0) {
+    b.batch.add(new ConeGeometry(r * 1.25, roofH, 16), b.mats.roof, mat4(x, y + h + 1.4 + roofH / 2, z), true, false);
+    b.batch.add(new ConeGeometry(0.15, roofH * 0.35, 6), b.mats.trim, mat4(x, y + h + 1.4 + roofH + roofH * 0.15, z), false, false);
+  }
+  // narrow arrow-slit windows
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2;
-    b.batch.add(new BoxGeometry(0.25, 1.6, 0.1), b.mats.glowCrimson, mat4(x + Math.sin(a) * (r + 0.02), h * 0.7, z + Math.cos(a) * (r + 0.02), 0, a), false, false);
+    b.batch.add(new BoxGeometry(0.25, 1.6, 0.1), b.mats.window, mat4(x + Math.sin(a) * (r + 0.02), y + h * 0.7, z + Math.cos(a) * (r + 0.02), 0, a), false, false);
   }
-  b.world.addCylinder(x, z, r, 0, h + 1.4);
+  if (collide) b.world.addCylinder(x, z, r, y, y + h + 1.4);
 }
 
 /** Straight stairs rising along +dir; each step collider spans to the top landing. */

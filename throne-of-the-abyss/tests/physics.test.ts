@@ -96,3 +96,21 @@ describe('hit geometry', () => {
     expect(crossing).toBeCloseTo(0);
   });
 });
+
+describe('terrain', () => {
+  it('stands on a height field and is blocked by slopes that are too steep', () => {
+    const w = new CollisionWorld();
+    // gentle ramp for x < 10, cliff (rise 3 m per metre) beyond
+    w.terrain = { height: (x: number) => (x < 10 ? x * 0.2 : 2 + (x - 10) * 3) };
+    const m = new CharacterMotor(w, 0.36, 1.8, 0.42);
+    m.teleport(0, 0, 0);
+    m.desiredVelocity.set(4, 0, 0);
+    for (let i = 0; i < 180; i++) m.update(1 / 60);
+    expect(m.position.x).toBeGreaterThan(9.5);
+    expect(m.position.x).toBeLessThan(10.4);
+    expect(m.position.y).toBeLessThan(3.4);
+    const hit = w.raycast(0, 5, 0, 1, 0, 0, 50);
+    expect(hit?.distance).toBeGreaterThan(10);
+    expect(hit?.distance).toBeLessThan(11.5);
+  });
+});

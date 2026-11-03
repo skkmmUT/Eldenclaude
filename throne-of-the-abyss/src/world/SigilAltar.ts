@@ -1,6 +1,6 @@
 import { CylinderGeometry, Group, Mesh, OctahedronGeometry, TorusGeometry, Vector3 } from 'three';
 import type { Player } from '@/characters/player/Player';
-import { glowMaterial, toonMaterial } from '@/render/Materials';
+import { glowMaterial, surfaceMaterial } from '@/render/Materials';
 import { wallTexture } from '@/render/TextureFactory';
 import type { VFXManager } from '@/vfx/VFXManager';
 import type { Interactable } from './Interactable';
@@ -30,9 +30,9 @@ export class SigilAltar implements Interactable {
     vfx: VFXManager,
   ) {
     this.group.position.copy(position);
-    const stone = toonMaterial({ color: '#4a4452', map: wallTexture() });
-    const dark = toonMaterial({ color: '#1a1620' });
-    const gold = toonMaterial({ color: '#d8a83c', emissive: '#d8a83c', emissiveIntensity: 0.15 });
+    const stone = surfaceMaterial({ color: '#4a4452', map: wallTexture() });
+    const dark = surfaceMaterial({ color: '#1a1620' });
+    const gold = surfaceMaterial({ color: '#d8a83c', emissive: '#d8a83c', emissiveIntensity: 0.15 });
     const base = new Mesh(new CylinderGeometry(1.15, 1.35, 0.35, 8), stone);
     base.position.y = 0.175;
     const step2 = new Mesh(new CylinderGeometry(0.85, 1.0, 0.3, 8), stone);

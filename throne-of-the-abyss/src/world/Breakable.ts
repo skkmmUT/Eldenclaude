@@ -1,6 +1,6 @@
 import { Group, LatheGeometry, Mesh, Vector2, Vector3 } from 'three';
 import type { CollisionWorld, Collider } from '@/physics/CollisionWorld';
-import { toonMaterial } from '@/render/Materials';
+import { surfaceMaterial } from '@/render/Materials';
 import type { VFXManager } from '@/vfx/VFXManager';
 
 let urnGeo: LatheGeometry | null = null;
@@ -34,7 +34,7 @@ export class Breakable {
     readonly echoes: number,
     scale = 1,
   ) {
-    const mat = toonMaterial({ color: '#5a3e34' });
+    const mat = surfaceMaterial({ color: '#5a3e34' });
     const m = new Mesh(urnGeometry(), mat);
     m.scale.setScalar(scale);
     m.castShadow = true;

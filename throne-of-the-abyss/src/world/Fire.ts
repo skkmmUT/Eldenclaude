@@ -48,6 +48,9 @@ export class Fire {
     this.group.visible = lit;
   }
 
+  /** 0 = noon (fire light barely matters), 1 = night (full strength). */
+  night = 1;
+
   update(dt: number): void {
     if (!this.enabled) return;
     this.t += dt;
@@ -56,7 +59,7 @@ export class Fire {
       const base = [1.6, 1.1, 0.7][i] * this.scale;
       s.scale.set(base * (0.9 + f * 0.15), base * (1.05 + f * 0.25), 1);
     });
-    if (this.light) this.light.intensity = this.baseIntensity * f;
+    if (this.light) this.light.intensity = this.baseIntensity * f * (0.3 + 0.7 * this.night);
     this.emberTimer -= dt;
     if (this.emberTimer <= 0) {
       this.emberTimer = 0.12 + Math.random() * 0.2;

@@ -36,4 +36,13 @@ export const LORE: Record<string, LoreEntry> = {
       'trying to mend it — and buried the pieces in the hearts of their greatest champions.',
     ],
   },
+  elder_bough: {
+    id: 'elder_bough',
+    title: 'Carving on the Elder Bough',
+    text: [
+      'Cut deep into the bark, older than the Ashen Throne itself:',
+      '"Here the first kings swore upon living wood, not stone. The wood remembered; the stone forgot."',
+      'Beneath it, newer and shallower, a single line: "The Seals were never meant to hold the dead. Only to hold us."',
+    ],
+  },
 };

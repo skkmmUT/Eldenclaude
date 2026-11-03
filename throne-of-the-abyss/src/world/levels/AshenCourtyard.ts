@@ -1,20 +1,14 @@
 import {
   BoxGeometry,
-  Color,
   ConeGeometry,
   CylinderGeometry,
-  DirectionalLight,
-  DodecahedronGeometry,
-  FogExp2,
   Group,
-  HemisphereLight,
   Mesh,
   Vector3,
 } from 'three';
 import type { GameContext } from '@/core/GameContext';
 import { Rng } from '@/core/MathUtils';
-import { glowMaterial, GlobalShading, toonMaterial } from '@/render/Materials';
-import { banneredClothTexture, flagstoneTexture, wallTexture } from '@/render/TextureFactory';
+import { glowMaterial, surfaceMaterial } from '@/render/Materials';
 import { HumanoidRig } from '@/characters/HumanoidRig';
 import { Pose } from '@/animation/Pose';
 import { POSES } from '@/data/poses';
@@ -22,7 +16,8 @@ import { APPEARANCES } from '@/data/appearances';
 import type { EnemySpawn } from '@/characters/enemies/Enemy';
 import { StaticBatcher } from '../StaticBatcher';
 import { Atmosphere } from '../Atmosphere';
-import { Sky } from '../Sky';
+import { architectureMaterials } from '../Palette';
+import { buildOverworld, type OverworldInstance } from '../regions/Overworld';
 import { Fire } from '../Fire';
 import { SigilAltar } from '../SigilAltar';
 import { Chest } from '../Chest';
@@ -66,11 +61,10 @@ export interface LevelInstance {
   breakables: Breakable[];
   fires: Fire[];
   enemySpawns: EnemySpawn[];
-  sky: Sky;
   atmosphere: Atmosphere;
-  keyLight: DirectionalLight;
+  overworld: OverworldInstance;
   gate: GateState;
-  update(dt: number, focus: Vector3, cameraPos: Vector3): void;
+  update(dt: number, cameraPos: Vector3, env: { night: number; wind: number }): void;
   /** Re-apply the light budget when graphics settings change. */
   applyLightBudget(maxLights: number): void;
 }
@@ -86,22 +80,7 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
   const scene = ctx.scene;
   const world = ctx.world;
   const batch = new StaticBatcher(36);
-  const stoneTex = wallTexture();
-  const floorTex = flagstoneTexture();
-  const mats: BuildCtx['mats'] = {
-    stone: toonMaterial({ color: '#8a7f92', map: stoneTex, rim: 0.12 }),
-    stoneDark: toonMaterial({ color: '#625a6a', map: stoneTex, rim: 0 }),
-    floor: toonMaterial({ color: '#948c98', map: floorTex, rim: 0 }),
-    trim: toonMaterial({ color: '#c8983a', emissive: '#c8983a', emissiveIntensity: 0.12, rim: 0.5 }),
-    wood: toonMaterial({ color: '#3a2418' }),
-    iron: toonMaterial({ color: '#2a2630', rim: 0.5 }),
-    bark: toonMaterial({ color: '#1a1214', rim: 1.4 }),
-    glowCrimson: glowMaterial('#ff2a3a', 1.6),
-    glowViolet: glowMaterial('#c06cff', 2.2),
-    banner: toonMaterial({ color: '#ffffff', map: banneredClothTexture('#5a0a18', '#d8a83c', '#d8a83c'), doubleSide: true }),
-    statue: toonMaterial({ color: '#9a94a6', map: stoneTex, rim: 0.15 }),
-  };
-  (mats.banner as { alphaTest: number }).alphaTest = 0.5;
+  const mats = architectureMaterials();
   const b: BuildCtx = { batch, world, mats };
   const rng = new Rng(20261103);
 
@@ -110,7 +89,6 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
   // ---------------------------------------------------------------------------------
   batch.add(new BoxGeometry(84, 2, 96), mats.floor, mat4(0, -1, 2), false, true, 0.22);
   world.addBox(-42, -4, -46, 42, 0, 50, { blocksSight: false });
-  world.killY = -20;
 
   curtainWall(b, -41, -45, -41, 49, 10); // west
   curtainWall(b, 41, -45, 41, 49, 10); // east
@@ -120,9 +98,12 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
   curtainWall(b, -41, 49, -26, 49, 10);
   // South gatehouse (closed portcullis behind the player's waking place)
   batch.add(archFrameGeometry(12, 14, 7, 5, 4, 3), mats.stone, mat4(0, 0, -45), true, true, 0.25);
-  world.addBox(-6, 0, -46.5, 6, 14, -43.5);
-  for (let i = -3; i <= 3; i++) batch.add(new BoxGeometry(0.15, 9, 0.15), mats.iron, mat4(i * 0.9, 4.5, -43.3), true, false);
-  for (let j = 0; j < 6; j++) batch.add(new BoxGeometry(6.6, 0.12, 0.12), mats.iron, mat4(0, 0.8 + j * 1.5, -43.3), true, false);
+  // The gate stands open (portcullis raised): the road leads out into the kingdom.
+  world.addBox(-6, 0, -46.5, -3.5, 14, -43.5);
+  world.addBox(3.5, 0, -46.5, 6, 14, -43.5);
+  world.addBox(-6, 8.2, -46.5, 6, 14, -43.5);
+  for (let i = -3; i <= 3; i++) batch.add(new BoxGeometry(0.15, 4.5, 0.15), mats.iron, mat4(i * 0.9, 10.6, -43.3), true, false);
+  for (let j = 0; j < 3; j++) batch.add(new BoxGeometry(6.6, 0.12, 0.12), mats.iron, mat4(0, 8.8 + j * 1.5, -43.3), true, false);
   tower(b, -41, -45, 4, 20, 10);
   tower(b, 41, -45, 4, 20, 10);
   tower(b, -41, 49, 4.5, 24, 12);
@@ -152,7 +133,7 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
   }
   // Sealed great door — two leaves hinged on their outer edges; opens when the elite falls.
   const gateGroup = new Group();
-  const doorMat = toonMaterial({ color: '#1a1418' });
+  const doorMat = surfaceMaterial({ color: '#1a1418' });
   const leaves: Group[] = [];
   for (const side of [-1, 1]) {
     const leaf = new Group();
@@ -194,7 +175,7 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
     },
   };
   // Inner nave stub behind the door (so the opening reads as depth)
-  batch.add(new BoxGeometry(10.6, 15, 0.4), toonMaterial({ color: '#05030a', rim: 0 }), mat4(0, landingY + 7.5, 60), false, false);
+  batch.add(new BoxGeometry(10.6, 15, 0.4), surfaceMaterial({ color: '#05030a', rim: 0 }), mat4(0, landingY + 7.5, 60), false, false);
   solidBox(b, 0, landingY / 2, 55, 6, landingY / 2, 6.5, mats.stoneDark, false);
   world.addBox(-6, landingY, 60, 6, 20, 61);
   world.addBox(-6.5, landingY, 50, -5.5, 20, 61);
@@ -296,30 +277,6 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
   solidBox(b, 26.4, 1.5, 40.5, 0.4, 1.5, 4.5, mats.stone);
   rubble(b, 37, 42, 2, 8, 31);
 
-  // ---------------------------------------------------------------------------------
-  // Distant backdrop: jagged mountains and floating ruins in the blood sky
-  // ---------------------------------------------------------------------------------
-  const far = toonMaterial({ color: '#2a1424', rim: 0 });
-  const farRng = new Rng(77);
-  for (let i = 0; i < 40; i++) {
-    const a = (i / 40) * Math.PI * 2;
-    const d = farRng.range(150, 190);
-    const h = farRng.range(18, 48);
-    batch.add(new ConeGeometry(farRng.range(14, 26), h, 4 + (i % 3)), far, mat4(Math.sin(a) * d, h / 2 - 4, Math.cos(a) * d, 0, farRng.range(0, 3)), false, false);
-  }
-  for (const [x, y, z, s] of [
-    [-110, 55, 140, 14],
-    [95, 75, 180, 18],
-    [150, 45, -40, 10],
-    [-160, 65, -30, 12],
-  ] as const) {
-    batch.add(new ConeGeometry(s, s * 2.2, 6), far, mat4(x, y - s, z, Math.PI), false, false);
-    batch.add(new CylinderGeometry(s * 1.05, s, s * 0.5, 6), far, mat4(x, y + s * 0.25, z), false, false);
-    batch.add(new CylinderGeometry(s * 0.12, s * 0.15, s * 1.6, 6), far, mat4(x + s * 0.3, y + s * 1.2, z), false, false);
-    batch.add(new ConeGeometry(s * 0.2, s * 0.8, 6), far, mat4(x + s * 0.3, y + s * 2.4, z), false, false);
-    batch.add(new DodecahedronGeometry(s * 0.3, 0), far, mat4(x - s * 1.6, y - s * 0.2, z), false, false);
-  }
-
   for (const x of [-9, 9]) banner(b, x, landingY + 14, 47.5, 0, 2.4, 7);
   for (const x of [-14, 14]) banner(b, x, 9.5, -43.8, 0, 2.2, 6);
   for (const z of [-20, 0, 20]) banner(b, 39.8, 9, z, -Math.PI / 2, 2, 5.5);
@@ -388,44 +345,31 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
   batch.build(scene);
 
   // ---------------------------------------------------------------------------------
-  // Lighting, fog, sky, atmosphere
+  // The open kingdom beyond the walls
   // ---------------------------------------------------------------------------------
-  scene.fog = new FogExp2('#3a1228', 0.009);
-  scene.background = new Color('#12040c');
-  const hemi = new HemisphereLight('#d88aa8', '#3a2232', 1.7);
-  scene.add(hemi);
-  const key = new DirectionalLight('#ffc8b4', 2.6);
-  key.position.set(-18, 40, 34);
-  key.castShadow = true;
-  key.shadow.mapSize.set(ctx.profile.shadowMapSize, ctx.profile.shadowMapSize);
-  const sc = key.shadow.camera;
-  sc.left = -34;
-  sc.right = 34;
-  sc.top = 34;
-  sc.bottom = -34;
-  sc.near = 1;
-  sc.far = 140;
-  key.shadow.bias = -0.0006;
-  key.shadow.normalBias = 0.03;
-  scene.add(key, key.target);
-  const fill = new DirectionalLight('#8a8cff', 1.1);
-  fill.position.set(20, 22, -40);
-  scene.add(fill);
-  GlobalShading.rimColor.value.set('#c25cff');
-  GlobalShading.rimStrength.value = 0.45;
-  GlobalShading.rimPower.value = 3.6;
-
-  const sky = new Sky(new Vector3(-0.25, 0.3, 1).normalize());
-  scene.add(sky.mesh);
+  const overworld = buildOverworld(scene, world, ctx.profile, mats);
+  const A = overworld.anchors;
+  const altar3 = new SigilAltar('altar_fallen_keep', 'The Fallen Keep', A.keepAltar.clone(), Math.PI * 0.75, ctx.vfx);
+  const altar4 = new SigilAltar('altar_elder_bough', 'Roots of the Elder Bough', A.treeShrine.clone(), Math.PI / 2, ctx.vfx);
+  for (const a of [altar3, altar4]) {
+    scene.add(a.group);
+    world.addCylinder(a.position.x, a.position.z, 1.2, a.position.y, a.position.y + 2.2, { blocksSight: false });
+    fires.push(a.fire);
+  }
+  const worldPickups = [
+    new Pickup('lore_elder_bough', A.treeShrine.clone().add(new Vector3(6, 0, 4)), { kind: 'lore', loreId: 'elder_bough' }, ctx.vfx),
+    new Pickup('ichor_shard_keep', A.keepAltar.clone().add(new Vector3(-9, -0.4, 7)), { kind: 'flaskUpgrade', id: 'crimson_ichor' }, ctx.vfx, '#ff5a6a'),
+    new Pickup('echoes_bridge', A.bridgeNorth.clone().add(new Vector3(5, 0, 3)), { kind: 'echoes', amount: 300 }, ctx.vfx, '#ffd27a'),
+  ];
+  for (const p of worldPickups) {
+    p.position.y = overworld.terrain.height(p.position.x, p.position.z) > p.position.y ? overworld.terrain.height(p.position.x, p.position.z) : p.position.y;
+    p.group.position.copy(p.position);
+    scene.add(p.group);
+    pickups.push(p);
+  }
+  applyLightBudget(ctx.profile.maxPointLights);
   const atmosphere = new Atmosphere(scene, ctx.profile.particleDensity);
-  atmosphere.addShaft(new Vector3(-8, 34, 26), new Vector3(-2, 0, 2), 7, '#ff6a6a', 0.11);
-  atmosphere.addShaft(new Vector3(6, 34, 30), new Vector3(9, 0, 10), 5, '#ff7a6a', 0.08);
-  atmosphere.addShaft(new Vector3(0, landingY + 18.5, 46.5), new Vector3(0, 0, 30), 6, '#c06cff', 0.12);
-  atmosphere.addShaft(new Vector3(-30, 22, -2), new Vector3(-33, 0, 8), 4, '#ff6a6a', 0.1);
-  atmosphere.addFogSheet(new Vector3(25, 0, -16), 26, 26, 0.25);
-  atmosphere.addFogSheet(new Vector3(-33, 0, 0), 12, 50, 0.25);
-  atmosphere.addFogSheet(new Vector3(0, 0, 0), 40, 40, 0.15);
-  atmosphere.setVolumetrics(ctx.profile.volumetrics);
+  const altarFires = new Set([altar.fire, altar2.fire, altar3.fire, altar4.fire]);
 
   // ---------------------------------------------------------------------------------
   // Enemy placement
@@ -449,7 +393,18 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
     },
     { id: 'rev_graves', type: 'ashen_revenant', position: new Vector3(26, 0, -10), yaw: 0 },
     { id: 'elite_vaelor', type: 'gravebound_knight', position: new Vector3(0, landingY, 41.5), yaw: Math.PI },
+    {
+      id: 'rev_bridge',
+      type: 'ashen_revenant',
+      position: A.bridgeGuard.clone(),
+      yaw: 0,
+      patrol: [A.bridgeGuard.clone(), A.bridgeGuard.clone().add(new Vector3(-3, 0, -14))],
+    },
+    { id: 'rev_keep_a', type: 'ashen_revenant', position: A.keepSpawnA.clone(), yaw: 0.6 },
+    { id: 'rev_keep_b', type: 'ashen_revenant', position: A.keepSpawnB.clone(), yaw: -2.2 },
+    { id: 'rev_bough', type: 'ashen_revenant', position: A.treeSpawn.clone(), yaw: -1.2 },
   ];
+  for (const sp of enemySpawns) for (const p of sp.patrol ?? []) p.y = Math.max(p.y, overworld.terrain.height(p.x, p.z));
 
   return {
     id: 'ashen_courtyard',
@@ -457,31 +412,25 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
     region: 'Ashen Kingdom',
     playerStart: new Vector3(0, 0, -37),
     playerYaw: 0,
-    altars: [altar, altar2],
+    altars: [altar, altar2, altar3, altar4],
     chests: [chest],
     pickups,
     breakables,
     fires,
     enemySpawns,
-    sky,
     atmosphere,
-    keyLight: key,
+    overworld,
     gate,
     applyLightBudget,
-    update(dt: number, focus: Vector3, cameraPos: Vector3) {
-      sky.update(dt, cameraPos);
-      atmosphere.update(dt, cameraPos);
-      for (const a of [altar, altar2]) a.update(dt);
+    update(dt: number, cameraPos: Vector3, env: { night: number; wind: number }) {
+      atmosphere.update(dt, cameraPos, env.night);
+      for (const a of [altar, altar2, altar3, altar4]) a.update(dt);
       chest.update(dt);
       for (const p of pickups) p.update(dt);
-      for (let i = 2; i < fires.length; i++) fires[i].update(dt);
+      for (const f of fires) f.night = env.night;
+      for (const f of fires) if (!altarFires.has(f)) f.update(dt);
       gate.update(dt);
-      // Shadow frustum follows the player with texel snapping (stable, crisp shadows).
-      const snap = 68 / key.shadow.mapSize.x;
-      const fx = Math.round(focus.x / snap) * snap;
-      const fz = Math.round(focus.z / snap) * snap;
-      key.target.position.set(fx, 0, fz);
-      key.position.set(fx - 18, 40, fz + 34);
+      overworld.foliage.update(dt, cameraPos, env.wind);
     },
   };
 }

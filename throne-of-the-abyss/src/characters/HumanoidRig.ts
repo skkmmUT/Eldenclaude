@@ -19,7 +19,7 @@ import {
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { JOINTS, JOINT_INDEX, type JointName } from '@/animation/Skeleton';
 import type { Pose } from '@/animation/Pose';
-import { glowMaterial, outlineMaterial, toonMaterial } from '@/render/Materials';
+import { glowMaterial, outlineMaterial, surfaceMaterial } from '@/render/Materials';
 import { metalTexture } from '@/render/TextureFactory';
 
 export type HelmetStyle = 'crowned' | 'sallet' | 'horned' | 'hood';
@@ -222,12 +222,12 @@ export class HumanoidRig {
     const p = this.look.palette;
     const b = this.look.bulk;
     const metal = metalTexture();
-    const armor = toonMaterial({ color: p.armor, map: metal });
-    const armorDark = toonMaterial({ color: p.armorDark });
-    const trim = toonMaterial({ color: p.trim, map: metal, emissive: p.trim, emissiveIntensity: 0.08, rim: 1.3 });
-    const cloth = toonMaterial({ color: p.cloth, doubleSide: true });
-    const clothInner = toonMaterial({ color: p.clothInner, doubleSide: true });
-    const skin = toonMaterial({ color: p.skin });
+    const armor = surfaceMaterial({ color: p.armor, map: metal, metalness: 0.7, roughness: 0.38, rim: 1 });
+    const armorDark = surfaceMaterial({ color: p.armorDark, metalness: 0.45, roughness: 0.55, rim: 1 });
+    const trim = surfaceMaterial({ color: p.trim, map: metal, metalness: 0.95, roughness: 0.28, rim: 1 });
+    const cloth = surfaceMaterial({ color: p.cloth, roughness: 0.95, doubleSide: true, rim: 1 });
+    const clothInner = surfaceMaterial({ color: p.clothInner, roughness: 0.95, doubleSide: true });
+    const skin = surfaceMaterial({ color: p.skin, roughness: 0.6, rim: 1 });
     const eye = glowMaterial(p.eyes, 3.2);
     const L = LIMB;
 
@@ -339,12 +339,12 @@ export class HumanoidRig {
     if (style === 'hood') {
       this.add('head', new SphereGeometry(0.15, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.62), cloth, [0, hy + 0.01, -0.01], [-0.25, 0, 0], [1, 1.15, 1.15]);
       this.add('head', new ConeGeometry(0.15, 0.32, 12, 1, true), cloth, [0, hy - 0.06, -0.06], [-0.35, 0, 0], [1, 1, 1]);
-      this.add('head', new SphereGeometry(0.105, 12, 10), toonMaterial({ color: '#08060c', rim: 0 }), [0, hy - 0.005, 0.045], [0, 0, 0], [0.85, 0.95, 0.6]);
+      this.add('head', new SphereGeometry(0.105, 12, 10), surfaceMaterial({ color: '#08060c', roughness: 1 }), [0, hy - 0.005, 0.045], [0, 0, 0], [0.85, 0.95, 0.6]);
     } else {
       // Helm shell + face plate
       this.add('head', new SphereGeometry(0.135, 18, 14), armor, [0, hy + 0.012, -0.005], [0, 0, 0], [0.95, 1.1, 1.08]);
       this.add('head', new BoxGeometry(0.17, 0.1, 0.08), armorDark, [0, hy - 0.035, 0.085], [-0.1, 0, 0]);
-      this.add('head', new BoxGeometry(0.2, 0.024, 0.05), toonMaterial({ color: '#050308', rim: 0 }), [0, hy + 0.012, 0.11]);
+      this.add('head', new BoxGeometry(0.2, 0.024, 0.05), surfaceMaterial({ color: '#050308', roughness: 1 }), [0, hy + 0.012, 0.11]);
       this.add('head', new BoxGeometry(0.016, 0.16, 0.03), trim, [0, hy + 0.05, 0.128], [0.15, 0, 0]);
       if (style === 'crowned') {
         for (let i = 0; i < 7; i++) {
@@ -367,7 +367,7 @@ export class HumanoidRig {
     this.add('head', eyeGeo, eye, [-0.042, hy + 0.012, 0.135], [0, 0, 0.12]);
 
     // Long anime hair flowing from under the helm (stylised strands).
-    const hairMat = this.look.palette.hair ? toonMaterial({ color: this.look.palette.hair, rim: 1.6 }) : null;
+    const hairMat = this.look.palette.hair ? surfaceMaterial({ color: this.look.palette.hair, roughness: 0.5, rim: 1.5 }) : null;
     if (hairMat) {
       const n = this.look.hairStrands;
       for (let i = 0; i < n; i++) {

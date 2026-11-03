@@ -8,13 +8,13 @@ import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import type { GraphicsProfile } from './GraphicsSettings';
 
-/** Final colour grade: crushed purple shadows, warm highlights, vignette, grain, CA, damage flash. */
+/** Final colour grade: natural saturation/contrast, soft vignette, damage flash, death desaturation. */
 const GradeShader = {
   uniforms: {
     tDiffuse: { value: null },
     uTime: { value: 0 },
-    uVignette: { value: 0.42 },
-    uGrain: { value: 0.035 },
+    uVignette: { value: 0.22 },
+    uGrain: { value: 0.02 },
     uAberration: { value: 0.0 },
     uDamage: { value: 0.0 },
     uDesaturate: { value: 0.0 },
@@ -33,7 +33,7 @@ const GradeShader = {
       vec2 c = vUv - 0.5;
       float r2 = dot(c, c);
       vec3 col;
-      float ca = uAberration * uFilm + uDamage * 0.004;
+      float ca = uAberration * uFilm + uDamage * 0.003;
       if (ca > 0.00001) {
         col.r = texture2D(tDiffuse, vUv + c * ca).r;
         col.g = texture2D(tDiffuse, vUv).g;
@@ -41,19 +41,14 @@ const GradeShader = {
       } else {
         col = texture2D(tDiffuse, vUv).rgb;
       }
-      // split-tone: violet shadows, warm-gold highlights
-      float l = dot(col, vec3(0.299, 0.587, 0.114));
-      col = mix(col, col * vec3(0.92, 0.86, 1.08), (1.0 - l) * 0.35);
-      col = mix(col, col * vec3(1.06, 1.0, 0.92), l * 0.25);
+      // Natural grade: gentle saturation and contrast, no colour cast.
+      float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
+      col = mix(vec3(l), col, 1.06);
       col = mix(col, vec3(l), uDesaturate);
-      // contrast S-curve
       col = clamp(col, 0.0, 1.0);
-      col = mix(col, col * col * (3.0 - 2.0 * col), 0.22);
-      // vignette (+ crimson damage pulse at the edges)
-      float vig = 1.0 - smoothstep(0.08, 0.5, r2) * uVignette;
-      col *= vig;
-      col = mix(col, vec3(0.55, 0.0, 0.04), uDamage * 0.75 * smoothstep(0.14, 0.5, r2));
-      // grain
+      col = mix(col, col * col * (3.0 - 2.0 * col), 0.08);
+      col *= 1.0 - smoothstep(0.12, 0.55, r2) * uVignette;
+      col = mix(col, vec3(0.55, 0.0, 0.04), uDamage * 0.7 * smoothstep(0.14, 0.5, r2));
       float n = hash(vUv * 1024.0 + fract(uTime * 13.0)) - 0.5;
       col += n * uGrain * uFilm;
       col = mix(col, vec3(0.0), uFade);
@@ -95,7 +90,7 @@ export class PostFX {
     this.composer.addPass(this.renderPass);
     this.bloom = null;
     if (this.profile.bloom) {
-      this.bloom = new UnrealBloomPass(new Vector2(256, 256), this.profile.bloomStrength, 0.55, 0.78);
+      this.bloom = new UnrealBloomPass(new Vector2(256, 256), this.profile.bloomStrength, 0.4, 0.92);
       this.composer.addPass(this.bloom);
     }
     this.composer.addPass(new OutputPass());

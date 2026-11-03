@@ -13,8 +13,6 @@ export interface GraphicsProfile {
   antialias: 'none' | 'fxaa' | 'smaa';
   /** Multiplier on ambient/combat particle counts. */
   particleDensity: number;
-  /** Fake volumetric light shafts and ground fog sheets. */
-  volumetrics: boolean;
   /** Character outline pass (inverted hull). */
   outlines: boolean;
   /** Max simultaneous dynamic point lights (torches/braziers); the rest are baked to glow only. */
@@ -23,6 +21,12 @@ export interface GraphicsProfile {
   viewDistance: number;
   /** Film grain + chromatic aberration in the grading pass. */
   filmEffects: boolean;
+  /** Planar reflections on lakes and rivers (renders the scene a second time). */
+  waterReflections: boolean;
+  /** Multiplier on grass / flower instance counts. */
+  foliageDensity: number;
+  /** Trees farther than this are hidden (metres). */
+  treeDistance: number;
 }
 
 export const GRAPHICS_PRESETS: Record<QualityPreset, GraphicsProfile> = {
@@ -36,11 +40,13 @@ export const GRAPHICS_PRESETS: Record<QualityPreset, GraphicsProfile> = {
     bloomStrength: 0,
     antialias: 'none',
     particleDensity: 0.35,
-    volumetrics: false,
     outlines: false,
     maxPointLights: 2,
-    viewDistance: 140,
+    viewDistance: 420,
     filmEffects: false,
+    waterReflections: false,
+    foliageDensity: 0.3,
+    treeDistance: 220,
   },
   medium: {
     preset: 'medium',
@@ -49,14 +55,16 @@ export const GRAPHICS_PRESETS: Record<QualityPreset, GraphicsProfile> = {
     shadows: true,
     shadowMapSize: 1024,
     bloom: true,
-    bloomStrength: 0.7,
+    bloomStrength: 0.3,
     antialias: 'fxaa',
     particleDensity: 0.6,
-    volumetrics: true,
-    outlines: true,
+    outlines: false,
     maxPointLights: 4,
-    viewDistance: 220,
+    viewDistance: 700,
     filmEffects: false,
+    waterReflections: false,
+    foliageDensity: 0.6,
+    treeDistance: 380,
   },
   high: {
     preset: 'high',
@@ -65,14 +73,16 @@ export const GRAPHICS_PRESETS: Record<QualityPreset, GraphicsProfile> = {
     shadows: true,
     shadowMapSize: 2048,
     bloom: true,
-    bloomStrength: 0.85,
+    bloomStrength: 0.35,
     antialias: 'fxaa',
     particleDensity: 1,
-    volumetrics: true,
-    outlines: true,
+    outlines: false,
     maxPointLights: 6,
-    viewDistance: 320,
-    filmEffects: true,
+    viewDistance: 1100,
+    filmEffects: false,
+    waterReflections: true,
+    foliageDensity: 1,
+    treeDistance: 600,
   },
   ultra: {
     preset: 'ultra',
@@ -81,14 +91,16 @@ export const GRAPHICS_PRESETS: Record<QualityPreset, GraphicsProfile> = {
     shadows: true,
     shadowMapSize: 4096,
     bloom: true,
-    bloomStrength: 0.95,
+    bloomStrength: 0.4,
     antialias: 'smaa',
     particleDensity: 1.5,
-    volumetrics: true,
-    outlines: true,
+    outlines: false,
     maxPointLights: 8,
-    viewDistance: 420,
-    filmEffects: true,
+    viewDistance: 1500,
+    filmEffects: false,
+    waterReflections: true,
+    foliageDensity: 1.5,
+    treeDistance: 900,
   },
 };
 

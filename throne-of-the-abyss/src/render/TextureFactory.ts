@@ -40,7 +40,7 @@ export function flagstoneTexture(): Texture {
   const size = 512;
   const [c, g] = canvas(size);
   const rng = new Rng(1337);
-  g.fillStyle = '#3a3440';
+  g.fillStyle = '#6e6a66';
   g.fillRect(0, 0, size, size);
   const rows = 4;
   const rowH = size / rows;
@@ -48,9 +48,9 @@ export function flagstoneTexture(): Texture {
     let x = r % 2 === 0 ? 0 : -rowH * 0.5;
     while (x < size) {
       const w = rowH * rng.range(0.8, 1.4);
-      const shade = rng.range(120, 160);
+      const shade = rng.range(165, 205);
       const tint = rng.range(-6, 6);
-      g.fillStyle = `rgb(${shade + tint + 4},${shade - 2},${shade + 10})`;
+      g.fillStyle = `rgb(${shade + tint + 4},${shade + 1},${shade - 6})`;
       g.fillRect(x + 3, r * rowH + 3, w - 6, rowH - 6);
       // bevel highlight / shadow
       g.fillStyle = 'rgba(255,255,255,0.05)';
@@ -75,7 +75,7 @@ export function flagstoneTexture(): Texture {
       x += w;
     }
   }
-  speckle(g, size, rng, 5000, 0.25);
+  speckle(g, size, rng, 5000, 0.12);
   speckle(g, size, rng, 1500, 0.06, true);
   // blood-dark grime blotches
   for (let i = 0; i < 18; i++) {
@@ -83,8 +83,8 @@ export function flagstoneTexture(): Texture {
     const gy = rng.range(0, size);
     const rad = rng.range(20, 70);
     const grad = g.createRadialGradient(gx, gy, 0, gx, gy, rad);
-    grad.addColorStop(0, 'rgba(40,6,12,0.35)');
-    grad.addColorStop(1, 'rgba(40,6,12,0)');
+    grad.addColorStop(0, 'rgba(60,52,40,0.22)');
+    grad.addColorStop(1, 'rgba(60,52,40,0)');
     g.fillStyle = grad;
     g.fillRect(gx - rad, gy - rad, rad * 2, rad * 2);
   }
@@ -100,7 +100,7 @@ export function wallTexture(): Texture {
   const size = 512;
   const [c, g] = canvas(size);
   const rng = new Rng(4242);
-  g.fillStyle = '#2e2a34';
+  g.fillStyle = '#76716b';
   g.fillRect(0, 0, size, size);
   const rows = 8;
   const rowH = size / rows;
@@ -108,21 +108,21 @@ export function wallTexture(): Texture {
     let x = r % 2 === 0 ? 0 : -rowH;
     while (x < size) {
       const w = rowH * rng.range(1.5, 2.4);
-      const shade = rng.range(112, 150);
-      g.fillStyle = `rgb(${shade},${shade - 4},${shade + 8})`;
+      const shade = rng.range(160, 200);
+      g.fillStyle = `rgb(${shade + 3},${shade},${shade - 6})`;
       g.fillRect(x + 2, r * rowH + 2, w - 4, rowH - 4);
       g.fillStyle = 'rgba(255,255,255,0.045)';
       g.fillRect(x + 2, r * rowH + 2, w - 4, 3);
       x += w;
     }
   }
-  speckle(g, size, rng, 6000, 0.22);
+  speckle(g, size, rng, 6000, 0.1);
   // vertical damp streaks
   for (let i = 0; i < 24; i++) {
     const sx = rng.range(0, size);
     const grad = g.createLinearGradient(sx, 0, sx, size);
     grad.addColorStop(0, 'rgba(0,0,0,0.0)');
-    grad.addColorStop(rng.range(0.2, 0.8), 'rgba(0,0,0,0.25)');
+    grad.addColorStop(rng.range(0.2, 0.8), 'rgba(40,36,30,0.12)');
     grad.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = grad;
     g.fillRect(sx, 0, rng.range(3, 12), size);

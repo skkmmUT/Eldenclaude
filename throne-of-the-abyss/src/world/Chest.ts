@@ -1,6 +1,6 @@
 import { BoxGeometry, Group, Mesh, Vector3 } from 'three';
 import type { Player } from '@/characters/player/Player';
-import { glowMaterial, toonMaterial } from '@/render/Materials';
+import { glowMaterial, surfaceMaterial } from '@/render/Materials';
 import { metalTexture } from '@/render/TextureFactory';
 import type { Interactable } from './Interactable';
 
@@ -22,9 +22,9 @@ export class Chest implements Interactable {
   ) {
     this.group.position.copy(position);
     this.group.rotation.y = yaw;
-    const wood = toonMaterial({ color: '#3a2216' });
-    const iron = toonMaterial({ color: '#8a8070', map: metalTexture() });
-    const gold = toonMaterial({ color: '#d8a83c', map: metalTexture(), emissive: '#d8a83c', emissiveIntensity: 0.1 });
+    const wood = surfaceMaterial({ color: '#3a2216' });
+    const iron = surfaceMaterial({ color: '#8a8070', map: metalTexture() });
+    const gold = surfaceMaterial({ color: '#d8a83c', map: metalTexture(), emissive: '#d8a83c', emissiveIntensity: 0.1 });
     const body = new Mesh(new BoxGeometry(1.2, 0.6, 0.75), wood);
     body.position.y = 0.3;
     body.castShadow = body.receiveShadow = true;

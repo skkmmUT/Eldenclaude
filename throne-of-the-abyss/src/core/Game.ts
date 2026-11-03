@@ -1,4 +1,4 @@
-import { DirectionalLight, Vector3 } from 'three';
+import { Vector3 } from 'three';
 import { EventBus } from './EventBus';
 import type { GameEvents } from './GameEvents';
 import { GameTime } from './Time';
@@ -21,6 +21,8 @@ import { WEAPONS } from '@/data/weapons';
 import { CONSUMABLES } from '@/data/items';
 import { LORE, type LoreEntry } from '@/data/lore';
 import { buildAshenCourtyard, type LevelInstance } from '@/world/levels/AshenCourtyard';
+import { EnvironmentSystem } from '@/world/environment/EnvironmentSystem';
+import type { WeatherKind } from '@/world/environment/Weather';
 import type { SigilAltar } from '@/world/SigilAltar';
 import { Pickup } from '@/world/Pickup';
 import type { Interactable } from '@/world/Interactable';
@@ -66,6 +68,7 @@ export class Game implements MenuHost {
   readonly director = new EnemyDirector();
   readonly ctx: GameContext;
   readonly level: LevelInstance;
+  readonly env: EnvironmentSystem;
   readonly player: Player;
   readonly enemies: Enemy[] = [];
   readonly hud: HUD;
@@ -91,8 +94,7 @@ export class Game implements MenuHost {
   private lastSafePos = new Vector3();
   private gateBannerShown = false;
   private titleTime = 0;
-  /** Soft light that follows the camera: keeps characters readable against back-light. */
-  private readonly viewLight = new DirectionalLight('#b8a8ff', 0.75);
+  private mapImage: HTMLCanvasElement | undefined;
   private running = false;
   frameCount = 0;
 
@@ -126,8 +128,8 @@ export class Game implements MenuHost {
     this.projectiles = new ProjectileSystem(this.ctx);
     this.ctx.projectiles = this.projectiles;
 
+    this.env = new EnvironmentSystem(this.renderer.scene, this.renderer.renderer, this.profile);
     this.level = buildAshenCourtyard(this.ctx);
-    this.renderer.scene.add(this.viewLight, this.viewLight.target);
     this.player = new Player(this.ctx, this.input);
     this.combat.register(this.player);
     for (const spawn of this.level.enemySpawns) {
@@ -289,6 +291,8 @@ export class Game implements MenuHost {
     this.lastAltar = null;
     this.gateBannerShown = false;
     this.playtime = 0;
+    this.env.time.set(9.5);
+    this.env.weather.set('clear', true);
     for (const a of this.level.altars) a.setKindled(false);
     for (const c of this.level.chests) c.setOpened(false);
     for (const p of this.level.pickups) p.setTaken(false);
@@ -487,6 +491,19 @@ export class Game implements MenuHost {
     window.setTimeout(() => this.menus.showAltar(), 50);
   }
 
+  /** Altar option: let time pass to the next part of the day. */
+  passTime(): string {
+    const h = this.env.time.hours;
+    const stops = [8, 13, 19, 23];
+    const next = stops.find((s) => s > h + 0.25) ?? stops[0];
+    this.env.time.set(next);
+    return this.env.time.label;
+  }
+
+  worldTime(): string {
+    return this.env.describe();
+  }
+
   levelUp(alloc: Partial<Record<AttributeId, number>>): boolean {
     const ok = this.player.progress.levelUp(alloc);
     if (ok) {
@@ -671,6 +688,8 @@ export class Game implements MenuHost {
         defeatedBosses: [...this.defeatedBosses],
         gateOpen: this.level.gate.open,
         discoveredRegions: [this.level.region],
+        timeOfDay: this.env.time.hours,
+        weather: this.env.weather.kind,
         readLore: [...this.readLore],
       },
       lostEchoes: this.lostEchoes
@@ -699,6 +718,8 @@ export class Game implements MenuHost {
       this.bossIntroDone.add(id);
     });
     this.level.gate.setOpen(d.world.gateOpen);
+    if (typeof d.world.timeOfDay === 'number') this.env.time.set(d.world.timeOfDay);
+    if (d.world.weather) this.env.weather.set(d.world.weather as WeatherKind, true);
     this.lastAltar = this.level.altars.find((a) => a.id === d.player.lastAltar) ?? null;
     if (this.lastAltar) {
       p.respawnPoint.copy(this.lastAltar.standPoint());
@@ -740,12 +761,10 @@ export class Game implements MenuHost {
       this.ctx.profile = this.profile;
       this.renderer.applyProfile(this.profile);
       this.vfx.setDensity(this.profile.particleDensity);
-      this.level.atmosphere.setVolumetrics(this.profile.volumetrics);
       this.level.applyLightBudget(this.profile.maxPointLights);
-      const key = this.level.keyLight;
-      key.shadow.mapSize.set(this.profile.shadowMapSize, this.profile.shadowMapSize);
-      key.shadow.map?.dispose();
-      (key.shadow as { map: unknown }).map = null;
+      this.env.applyProfile(this.profile);
+      this.level.overworld.water.setReflections(this.profile.waterReflections);
+      this.level.overworld.foliage.treeDistance = this.profile.treeDistance;
       for (const c of [this.player, ...this.enemies]) c.setOutlines(this.profile.outlines);
       this.onResize();
     }
@@ -761,8 +780,9 @@ export class Game implements MenuHost {
   // ===================================================================================
   mapData(): MapData {
     return {
-      colliders: this.world.all(),
-      bounds: [-44, -48, 44, 52],
+      colliders: [...this.world.all()].filter((c) => c.tag !== 'tree'),
+      bounds: [-560, -560, 560, 560],
+      terrainImage: this.mapImage ??= this.level.overworld.terrain.mapImage(560),
       player: { x: this.player.position.x, z: this.player.position.z, yaw: this.player.facing },
       altars: this.level.altars.map((a) => ({ x: a.position.x, z: a.position.z, kindled: a.kindled, name: a.name })),
       lostEchoes: this.lostEchoes ? { x: this.lostEchoes.position.x, z: this.lostEchoes.position.z } : null,
@@ -858,12 +878,14 @@ export class Game implements MenuHost {
       this.camera.update(realDt, this.player.position, look, this.player.lockPointTarget);
     }
     this.renderer.fovOffset = this.camera.fovKick + (this.player.sprinting ? 3 : 0);
-    const cam = this.renderer.camera;
-    this.viewLight.position.copy(cam.position).add(new Vector3(0, 3, 0));
-    cam.getWorldDirection(this.viewLight.target.position).multiplyScalar(10).add(cam.position);
 
     // World / effects / UI
-    this.level.update(paused ? 0 : realDt, this.player.position, this.renderer.camera.position);
+    const envDt = paused ? 0 : realDt;
+    this.env.update(envDt, this.player.position, this.renderer.camera.position);
+    this.renderer.renderer.toneMappingExposure = this.env.exposure;
+    const L = this.env.time.lighting();
+    this.level.overworld.water.update(envDt, L.night > 0.5 ? L.moonDir : L.sunDir, this.env.sun.color, this.env.night);
+    this.level.update(envDt, this.renderer.camera.position, { night: this.env.night, wind: this.env.weather.current.wind });
     this.lostEchoes?.remnant.update(dt);
     this.vfx.update(dt);
     this.damageFlash = damp(this.damageFlash, 0, 3.5, realDt);

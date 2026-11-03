@@ -348,6 +348,9 @@ export class Player extends Character {
       else if (this.walkToggle || mag < 0.5) target = WALK * Math.max(mag, 0.6);
       else target = RUN * mag;
     }
+    // Wading through lakes and rivers is slow.
+    const wl = this.ctx.world.waterLevel;
+    if (wl !== null && this.position.y < wl - 0.25) target *= 0.55;
     const accel = target > this.speed ? 16 : 22;
     this.speed = moveTowards(this.speed, target, accel * dt);
     if (this.speed > 0.01 && mag > 0.05) {
@@ -377,6 +380,12 @@ export class Player extends Character {
   protected override onFootstep(): void {
     if (this.state !== 'locomotion') return;
     const radius = this.sprinting ? 9 : this.speed > 3 ? 5 : 1.5;
+    const wl = this.ctx.world.waterLevel;
+    if (wl !== null && this.position.y < wl) {
+      const p = this.tmp.copy(this.position).setY(wl + 0.05);
+      this.ctx.vfx.sparks.burst(p, { count: 10, color: '#e8f4ff', color2: '#9cc8e8', speed: 2.2, life: 0.5, size: 0.08, gravity: 9, drag: 1, upBias: 0.8, spread: 1.2 });
+      this.ctx.vfx.ring(p, 0.9, '#cfe6ff', 0.6);
+    }
     this.emitNoise(radius);
     if (this.sprinting) this.ctx.vfx.dust(this.tmp.copy(this.position).setY(this.position.y + 0.05), 0.35);
   }

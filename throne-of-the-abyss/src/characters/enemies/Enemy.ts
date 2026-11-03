@@ -478,7 +478,7 @@ export class Enemy extends Character implements CriticalVictim {
     }
 
     if (this.guardTimer > 0) this.guardTimer -= dt;
-    this.guarding = this.guardTimer > 0 && this.stamina > 10;
+    this.guarding = this.guardTimer > 0 && this.stamina > 10 && this.aggroTime > 0.6;
 
     // Spacing: approach, back off or circle.
     const toYaw = yawFromDir(t.position.x - this.position.x, t.position.z - this.position.z);

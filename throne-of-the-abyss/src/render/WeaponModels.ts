@@ -12,7 +12,7 @@ import {
   TorusGeometry,
   type Material,
 } from 'three';
-import { glowMaterial, outlineMaterial, toonMaterial } from './Materials';
+import { glowMaterial, outlineMaterial, surfaceMaterial } from './Materials';
 import { metalTexture } from './TextureFactory';
 
 export type WeaponShape = 'longsword' | 'greatsword' | 'katana' | 'rustblade' | 'gravecleaver';
@@ -90,9 +90,9 @@ function addMesh(group: Group, geo: BufferGeometry, mat: Material, outline = tru
 export function buildWeapon(v: WeaponVisual): WeaponModel {
   const group = new Group();
   const metal = metalTexture();
-  const bladeMat = toonMaterial({ color: v.bladeColor, map: metal, rim: 1.4 });
-  const hiltMat = toonMaterial({ color: v.hiltColor, map: metal, emissive: v.hiltColor, emissiveIntensity: 0.1 });
-  const gripMat = toonMaterial({ color: v.gripColor });
+  const bladeMat = surfaceMaterial({ color: v.bladeColor, map: metal, metalness: 0.95, roughness: 0.22, rim: 1 });
+  const hiltMat = surfaceMaterial({ color: v.hiltColor, map: metal, metalness: 0.9, roughness: 0.32 });
+  const gripMat = surfaceMaterial({ color: v.gripColor, roughness: 0.8 });
   const g = v.gripLength;
 
   // Grip runs from -g*0.35 (pommel side) to g*0.65 so the hand sits near the guard.
@@ -140,7 +140,7 @@ export function buildWeapon(v: WeaponVisual): WeaponModel {
     for (let i = 0; i < 4; i++) {
       const notch = new BoxGeometry(0.03, 0.04, 0.05);
       notch.translate(v.bladeWidth / 2, bladeStart + 0.15 + i * 0.17, 0);
-      addMesh(group, notch, toonMaterial({ color: '#2a1e18' }), false);
+      addMesh(group, notch, surfaceMaterial({ color: '#2a1e18', roughness: 0.9 }), false);
     }
   }
 
@@ -155,7 +155,7 @@ export function buildWeapon(v: WeaponVisual): WeaponModel {
     // Heavy spine plates on the greatsword.
     const spine = new BoxGeometry(v.bladeWidth * 0.5, v.bladeLength * 0.5, thickness * 2.2);
     spine.translate(0, bladeStart + v.bladeLength * 0.3, 0);
-    addMesh(group, spine, toonMaterial({ color: '#1a1420', map: metal }));
+    addMesh(group, spine, surfaceMaterial({ color: '#2a2630', map: metal, metalness: 0.8, roughness: 0.45 }));
   }
 
   return {
@@ -176,14 +176,14 @@ export function buildShield(color: string, trim: string, emblem: string): Group 
   s.quadraticCurveTo(-0.22, -0.2, -0.24, 0.1);
   s.quadraticCurveTo(-0.24, 0.3, 0, 0.32);
   const geo = new ExtrudeGeometry(s, { depth: 0.03, bevelEnabled: true, bevelSize: 0.015, bevelThickness: 0.015, bevelSegments: 1 });
-  const face = addMesh(group, geo, toonMaterial({ color, map: metalTexture() }));
+  const face = addMesh(group, geo, surfaceMaterial({ color, map: metalTexture(), metalness: 0.5, roughness: 0.6 }));
   face.position.z = -0.015;
   const rim = new TorusGeometry(0.1, 0.014, 6, 16);
   rim.translate(0, 0.02, 0.045);
-  addMesh(group, rim, toonMaterial({ color: trim, map: metalTexture() }), false);
+  addMesh(group, rim, surfaceMaterial({ color: trim, map: metalTexture(), metalness: 0.9, roughness: 0.35 }), false);
   const boss = new SphereGeometry(0.05, 10, 8);
   boss.translate(0, 0.02, 0.04);
-  addMesh(group, boss, toonMaterial({ color: emblem }), false);
+  addMesh(group, boss, surfaceMaterial({ color: emblem }), false);
   // Shield faces outward from the forearm.
   group.rotation.set(0, Math.PI / 2, 0);
   group.position.set(0.05, 0.1, 0);

@@ -449,6 +449,44 @@ try {
   check('elite defeat opens the Gate of Eternity', elite.dead && elite.gate);
   await shot('06_after_elite');
 
+  // --- Open world & environment -------------------------------------------------------------------
+  const world = await ev(() => {
+    T.heal();
+    g.player.lockTarget = null;
+    T.place(0, 0, -40, Math.PI);
+    g.input.simulate('KeyW', true);
+    g.simulate(6);
+    g.input.simulate('KeyW', false);
+    g.simulate(0.3);
+    const p = g.player.position;
+    const ground = g.level.overworld.terrain.height(p.x, p.z);
+    return { z: p.z, y: p.y, ground };
+  });
+  check('walk out of the open south gate onto the terrain', world.z < -60 && Math.abs(world.y - world.ground) < 0.25, JSON.stringify(world));
+  const env = await ev(() => {
+    const h0 = g.env.time.hours;
+    g.env.weather.locked = true;
+    g.env.weather.set('rain');
+    g.simulate(40);
+    const r = { advanced: g.env.time.hours - h0, rain: g.env.weather.current.rain, envMap: !!g.renderer.scene.environment, label: g.worldTime() };
+    g.env.weather.set('clear', true);
+    return r;
+  });
+  check('time of day advances', env.advanced > 0.4, JSON.stringify(env));
+  check('weather transitions to rain', env.rain > 0.6, JSON.stringify(env));
+  check('sky image-based lighting is generated', env.envMap);
+  const worldEnemies = await ev(() => g.enemies.filter((e) => ['rev_bridge', 'rev_keep_a', 'rev_bough'].includes(e.spawn.id)).map((e) => Math.abs(e.position.y - g.level.overworld.terrain.height(e.position.x, e.position.z))));
+  check('overworld enemies stand on the terrain', worldEnemies.length === 3 && worldEnemies.every((d) => d < 0.6), JSON.stringify(worldEnemies));
+  const pass = await ev(() => {
+    g.env.time.set(10);
+    const a = g.passTime();
+    const b = g.passTime();
+    return [a, b];
+  });
+  check('altar "Pass Time" advances the day', pass[0] === 'Noon' && pass[1] === 'Dusk', pass.join(' → '));
+  await ev(() => g.env.time.set(10));
+  await shot('09_overworld');
+
   // --- Save, reload, continue ---------------------------------------------------------------------
   const saved = await ev(() => {
     g.player.progress.echoes = 4321;

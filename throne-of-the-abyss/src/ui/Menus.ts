@@ -18,6 +18,7 @@ export interface MapData {
   altars: Array<{ x: number; z: number; kindled: boolean; name: string }>;
   lostEchoes: { x: number; z: number } | null;
   bosses: Array<{ x: number; z: number; alive: boolean }>;
+  terrainImage?: HTMLCanvasElement;
 }
 
 export interface MenuHost {
@@ -35,6 +36,8 @@ export interface MenuHost {
   travelTo(id: string): void;
   leaveAltar(): void;
   levelUp(alloc: Partial<Record<AttributeId, number>>): boolean;
+  passTime(): string;
+  worldTime(): string;
   mapData(): MapData;
   journal(): { objectives: Array<{ text: string; done: boolean }>; lore: LoreEntry[] };
   equipWeapon(index: number): void;
@@ -249,6 +252,7 @@ export class Menus {
     left.push(this.kv('Level', String(p.progress.level)));
     left.push(this.kv('Echoes', p.progress.echoes.toLocaleString('en-US')));
     left.push(this.kv('Echoes to next level', p.progress.nextLevelCost.toLocaleString('en-US')));
+    left.push(this.kv('World', escapeHtml(this.host.worldTime())));
     const right = [`<div class="section-title">Vitals</div>`];
     right.push(this.kv('Health', `${Math.ceil(p.hp)} / ${p.maxHp}`));
     right.push(this.kv('Mana', `${Math.ceil(p.mana)} / ${p.maxMana}`));
@@ -424,6 +428,7 @@ export class Menus {
     const Z = (z: number) => oz - z * s; // north (+z) is up
     g.fillStyle = '#0a0610';
     g.fillRect(0, 0, W, H);
+    if (d.terrainImage) g.drawImage(d.terrainImage, X(x1), Z(z1), (x1 - x0) * s, (z1 - z0) * s);
     for (const c of d.colliders) {
       if (c.kind === 'box') {
         if (c.maxY <= 0.01 || c.maxX - c.minX > 70) continue;
@@ -478,7 +483,8 @@ export class Menus {
     const legend = el('div.legend', {
       html:
         `<div class="section-title">Ashen Kingdom</div>` +
-        `<div class="desc" style="margin-bottom:16px">Ashen Gate Courtyard — the forecourt of the Cathedral of Eternity.</div>` +
+        `<div class="desc" style="margin-bottom:16px">The castle of the Ashen Gate, the river crossing, the Fallen Keep and the Elder Bough.</div>` +
+        `<div class="desc" style="margin-bottom:16px">${escapeHtml(this.host.worldTime())}</div>` +
         `<div><i style="background:#b46bff"></i>Kindled Sigil Altar</div>` +
         `<div><i style="background:#4a3a5a"></i>Unlit Sigil Altar</div>` +
         `<div><i style="background:#ff2a4a;border-radius:50%;transform:none"></i>Formidable foe</div>` +
@@ -579,12 +585,16 @@ export class Menus {
     this.altar.innerHTML = '';
     const box = el('div.altar-menu.interactive', {}, [
       el('h2', { text: 'Sigil Altar' }),
-      el('div.sub', { text: a ? a.name : '' }),
+      el('div.sub', { text: a ? `${a.name} · ${this.host.worldTime()}` : '' }),
     ]);
     const list = el('div.menu-list');
     list.append(
       this.button('Level Up', () => this.showLevelUp()),
       this.button('Travel', () => this.showTravel(), 'menu-btn', this.host.kindledAltars().length < 2),
+      this.button('Pass Time', () => {
+        this.host.passTime();
+        this.showAltar();
+      }),
       this.button('Leave', () => {
         this.closeAll();
         this.host.leaveAltar();

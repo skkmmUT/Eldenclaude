@@ -1,13 +1,10 @@
 import {
   BackSide,
   Color,
-  DataTexture,
   DoubleSide,
   Material,
   MeshBasicMaterial,
-  MeshToonMaterial,
-  NearestFilter,
-  RedFormat,
+  MeshStandardMaterial,
   ShaderMaterial,
   UniformsLib,
   UniformsUtils,
@@ -15,96 +12,93 @@ import {
 } from 'three';
 
 /**
- * Shared look-development for the "anime gothic" style:
- *  - cel shading with a 3-band light ramp,
- *  - a global coloured rim light (dramatic back-lighting, tinted per region),
- *  - inverted-hull outlines for characters.
- * Global uniforms are shared by every material so a region can re-tint the whole scene.
+ * Shared look-development: physically based materials (roughness / metalness, lit by the
+ * sun, the sky's image-based lighting and reflections). A very subtle optional fresnel
+ * "sheen" keeps characters readable at a distance without a cartoon look.
  */
 export const GlobalShading = {
-  rimColor: { value: new Color('#b05cff') },
-  rimStrength: { value: 0.55 },
-  rimPower: { value: 3.2 },
+  rimColor: { value: new Color('#fff4e0') },
+  rimStrength: { value: 0.06 },
+  rimPower: { value: 4.0 },
   time: { value: 0 },
 };
 
-let rampCache: DataTexture | null = null;
-/** 3-step light ramp (shadow / mid / lit) — the core of the cel look. */
-export function toonRamp(): DataTexture {
-  if (rampCache) return rampCache;
-  const data = new Uint8Array([92, 92, 160, 160, 160, 255, 255, 255]);
-  const tex = new DataTexture(data, data.length, 1, RedFormat);
-  tex.minFilter = NearestFilter;
-  tex.magFilter = NearestFilter;
-  tex.generateMipmaps = false;
-  tex.needsUpdate = true;
-  rampCache = tex;
-  return tex;
-}
-
-export interface ToonOptions {
+export interface SurfaceOptions {
   color: string | number | Color;
   map?: Texture | null;
+  roughness?: number;
+  metalness?: number;
   emissive?: string | number | Color;
   emissiveIntensity?: number;
-  rim?: number; // multiplier on global rim strength (0 disables)
+  /** Multiplier on the global fresnel sheen (0 disables, 1 = characters). */
+  rim?: number;
   transparent?: boolean;
   opacity?: number;
   doubleSide?: boolean;
+  vertexColors?: boolean;
+  flatShading?: boolean;
 }
 
-const toonCache = new Map<string, MeshToonMaterial>();
+const cache = new Map<string, MeshStandardMaterial>();
 
-/** Creates (or reuses) a toon material with the global rim-light injection. */
-export function toonMaterial(opts: ToonOptions): MeshToonMaterial {
+/** Creates (or reuses) a PBR surface material. */
+export function surfaceMaterial(opts: SurfaceOptions): MeshStandardMaterial {
   const color = new Color(opts.color as never);
   const key = [
     color.getHexString(),
     opts.map?.uuid ?? '',
+    opts.roughness ?? 0.85,
+    opts.metalness ?? 0,
     opts.emissive !== undefined ? new Color(opts.emissive as never).getHexString() : '',
     opts.emissiveIntensity ?? 1,
-    opts.rim ?? 1,
+    opts.rim ?? 0,
     opts.transparent ? opts.opacity ?? 1 : '',
     opts.doubleSide ? 'd' : '',
+    opts.vertexColors ? 'v' : '',
+    opts.flatShading ? 'f' : '',
   ].join('|');
-  const cached = toonCache.get(key);
+  const cached = cache.get(key);
   if (cached) return cached;
 
-  const mat = new MeshToonMaterial({
+  const mat = new MeshStandardMaterial({
     color,
     map: opts.map ?? null,
-    gradientMap: toonRamp(),
+    roughness: opts.roughness ?? 0.85,
+    metalness: opts.metalness ?? 0,
     emissive: opts.emissive !== undefined ? new Color(opts.emissive as never) : new Color(0x000000),
     emissiveIntensity: opts.emissiveIntensity ?? 1,
     transparent: !!opts.transparent,
     opacity: opts.opacity ?? 1,
+    vertexColors: !!opts.vertexColors,
+    flatShading: !!opts.flatShading,
   });
   if (opts.doubleSide) mat.side = DoubleSide;
-  const rimMul = opts.rim ?? 1;
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uRimColor = GlobalShading.rimColor;
-    shader.uniforms.uRimStrength = GlobalShading.rimStrength;
-    shader.uniforms.uRimPower = GlobalShading.rimPower;
-    shader.uniforms.uRimMul = { value: rimMul };
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        '#include <common>',
-        `#include <common>
+  const rimMul = opts.rim ?? 0;
+  if (rimMul > 0) {
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uRimColor = GlobalShading.rimColor;
+      shader.uniforms.uRimStrength = GlobalShading.rimStrength;
+      shader.uniforms.uRimPower = GlobalShading.rimPower;
+      shader.uniforms.uRimMul = { value: rimMul };
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
 uniform vec3 uRimColor; uniform float uRimStrength; uniform float uRimPower; uniform float uRimMul;`,
-      )
-      .replace(
-        '#include <opaque_fragment>',
-        `{
+        )
+        .replace(
+          '#include <opaque_fragment>',
+          `{
   vec3 vdir = normalize(vViewPosition);
   float fres = pow(1.0 - clamp(dot(normal, vdir), 0.0, 1.0), uRimPower);
-  float rimBand = smoothstep(0.35, 0.55, fres);
-  outgoingLight += uRimColor * rimBand * uRimStrength * uRimMul;
+  outgoingLight += uRimColor * fres * uRimStrength * uRimMul;
 }
 #include <opaque_fragment>`,
-      );
-  };
-  mat.customProgramCacheKey = () => `toonRim_${rimMul}`;
-  toonCache.set(key, mat);
+        );
+    };
+    mat.customProgramCacheKey = () => `pbrRim_${rimMul}`;
+  }
+  cache.set(key, mat);
   return mat;
 }
 
@@ -121,14 +115,14 @@ export function glowMaterial(color: string | number, intensity = 1, transparent 
   return mat;
 }
 
-/** Inverted-hull outline shader: extrudes back faces along normals in view space. */
+/** Inverted-hull outline shader (optional stylisation; disabled in the default presets). */
 let outlineMat: ShaderMaterial | null = null;
 export function outlineMaterial(): ShaderMaterial {
   if (outlineMat) return outlineMat;
   outlineMat = new ShaderMaterial({
     uniforms: UniformsUtils.merge([
       UniformsLib.fog,
-      { uThickness: { value: 0.012 }, uColor: { value: new Color('#07030c') } },
+      { uThickness: { value: 0.008 }, uColor: { value: new Color('#14100c') } },
     ]),
     vertexShader: /* glsl */ `
       uniform float uThickness;

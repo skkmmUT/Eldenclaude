@@ -9,7 +9,7 @@ export class GameRenderer {
   readonly camera: PerspectiveCamera;
   readonly post: PostFX;
   profile: GraphicsProfile;
-  baseFov = 58;
+  baseFov = 60;
   /** Additive FOV offset used for dynamic zoom (impacts, sprint, cinematics). */
   fovOffset = 0;
 
@@ -24,10 +24,10 @@ export class GameRenderer {
     });
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 0.85;
     this.renderer.shadowMap.enabled = profile.shadows;
     this.renderer.shadowMap.type = PCFSoftShadowMap;
-    this.camera = new PerspectiveCamera(this.baseFov, 1, 0.1, profile.viewDistance);
+    this.camera = new PerspectiveCamera(this.baseFov, 1, 0.15, profile.viewDistance);
     this.post = new PostFX(this.renderer, this.scene, this.camera, profile);
     window.addEventListener('resize', () => this.resize());
     this.resize();
