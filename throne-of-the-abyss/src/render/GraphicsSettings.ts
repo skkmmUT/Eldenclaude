@@ -27,6 +27,8 @@ export interface GraphicsProfile {
   foliageDensity: number;
   /** Trees farther than this are hidden (metres). */
   treeDistance: number;
+  /** Segment multiplier for smooth procedural geometry (applied when the world is built). */
+  geometryDetail: number;
 }
 
 export const GRAPHICS_PRESETS: Record<QualityPreset, GraphicsProfile> = {
@@ -47,6 +49,7 @@ export const GRAPHICS_PRESETS: Record<QualityPreset, GraphicsProfile> = {
     waterReflections: false,
     foliageDensity: 0.3,
     treeDistance: 220,
+    geometryDetail: 0.55,
   },
   medium: {
     preset: 'medium',
@@ -65,6 +68,7 @@ export const GRAPHICS_PRESETS: Record<QualityPreset, GraphicsProfile> = {
     waterReflections: false,
     foliageDensity: 0.6,
     treeDistance: 380,
+    geometryDetail: 0.75,
   },
   high: {
     preset: 'high',
@@ -83,6 +87,7 @@ export const GRAPHICS_PRESETS: Record<QualityPreset, GraphicsProfile> = {
     waterReflections: true,
     foliageDensity: 1,
     treeDistance: 600,
+    geometryDetail: 1,
   },
   ultra: {
     preset: 'ultra',
@@ -101,6 +106,7 @@ export const GRAPHICS_PRESETS: Record<QualityPreset, GraphicsProfile> = {
     waterReflections: true,
     foliageDensity: 1.5,
     treeDistance: 900,
+    geometryDetail: 1.3,
   },
 };
 

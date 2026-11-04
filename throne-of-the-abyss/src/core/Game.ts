@@ -1,4 +1,5 @@
 import { Vector3 } from 'three';
+import { GeometryDetail } from '@/render/SmoothGeometry';
 import { EventBus } from './EventBus';
 import type { GameEvents } from './GameEvents';
 import { GameTime } from './Time';
@@ -106,6 +107,7 @@ export class Game implements MenuHost {
     this.settings = loadSettings();
     if (options.quality) this.settings.quality = options.quality;
     this.profile = profileFor(this.settings.quality);
+    GeometryDetail.value = this.profile.geometryDetail;
     this.renderer = new GameRenderer(canvas, this.profile);
     this.input = new InputManager(canvas);
     this.input.allowUnlockedMouse = options.testMode;
@@ -884,7 +886,7 @@ export class Game implements MenuHost {
     this.env.update(envDt, this.player.position, this.renderer.camera.position);
     this.renderer.renderer.toneMappingExposure = this.env.exposure;
     const L = this.env.time.lighting();
-    this.level.overworld.water.update(envDt, L.night > 0.5 ? L.moonDir : L.sunDir, this.env.sun.color, this.env.night);
+    this.level.overworld.water.update(envDt, L.night > 0.5 ? L.moonDir : L.sunDir, this.env.sun.color, this.env.night, this.renderer.camera.position);
     this.level.update(envDt, this.renderer.camera.position, { night: this.env.night, wind: this.env.weather.current.wind });
     this.lostEchoes?.remnant.update(dt);
     this.vfx.update(dt);

@@ -32,8 +32,8 @@ export class CapeCloth {
     length: number,
     texture: Texture,
     private readonly worldScale: number,
-    cols = 6,
-    rows = 9,
+    cols = 9,
+    rows = 14,
   ) {
     this.cols = cols;
     this.rows = rows;

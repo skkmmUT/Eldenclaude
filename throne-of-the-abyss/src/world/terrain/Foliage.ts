@@ -6,7 +6,6 @@ import {
   Color,
   ConeGeometry,
   CylinderGeometry,
-  DodecahedronGeometry,
   DoubleSide,
   Euler,
   Group,
@@ -21,6 +20,7 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Rng, smoothstep } from '@/core/MathUtils';
+import { lathe, smoothRock, taperedTube } from '@/render/SmoothGeometry';
 import type { CollisionWorld } from '@/physics/CollisionWorld';
 import type { Terrain } from './Terrain';
 import { WORLD, fieldWeight, flowerWeight, forestWeight, roadWeight, riverZ } from './WorldLayout';
@@ -55,22 +55,6 @@ function windMaterial(mat: MeshStandardMaterial, amount: number, heightScale: nu
   return mat;
 }
 
-function jitter(geo: BufferGeometry, amount: number, rng: Rng): BufferGeometry {
-  const g = geo.index ? geo.toNonIndexed() : geo;
-  const pos = g.attributes.position;
-  const cache = new Map<string, [number, number, number]>();
-  for (let i = 0; i < pos.count; i++) {
-    const key = `${pos.getX(i).toFixed(3)},${pos.getY(i).toFixed(3)},${pos.getZ(i).toFixed(3)}`;
-    let d = cache.get(key);
-    if (!d) {
-      d = [rng.range(-amount, amount), rng.range(-amount, amount), rng.range(-amount, amount)];
-      cache.set(key, d);
-    }
-    pos.setXYZ(i, pos.getX(i) + d[0], pos.getY(i) + d[1], pos.getZ(i) + d[2]);
-  }
-  g.computeVertexNormals();
-  return g;
-}
 
 let leafTex: CanvasTexture | null = null;
 let needleTex: CanvasTexture | null = null;
@@ -196,6 +180,13 @@ function leafMaterial(amount: number, heightScale: number, tex: CanvasTexture = 
   return windMaterial(new MeshStandardMaterial({ color: '#ffffff', map: tex, alphaTest: 0.42, side: DoubleSide, roughness: 0.78 }), amount, heightScale);
 }
 
+/** Strip to position/normal so heterogeneous generators merge cleanly. */
+function clean(g: BufferGeometry): BufferGeometry {
+  const out = g.index ? g.toNonIndexed() : g;
+  for (const n of Object.keys(out.attributes)) if (n !== 'position' && n !== 'normal') out.deleteAttribute(n);
+  return out;
+}
+
 function place(geo: BufferGeometry, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, s = 1, sy = s): BufferGeometry {
   const m = new Matrix4().compose(new Vector3(x, y, z), new Quaternion().setFromEuler(new Euler(rx, ry, rz)), new Vector3(s, sy, s));
   const g = (geo.index ? geo.toNonIndexed() : geo.clone()).applyMatrix4(m);
@@ -214,10 +205,11 @@ interface Species {
 }
 
 function broadleaf(rng: Rng): Species {
+  // Curved, tapering trunk with a root flare and two limbs that blend into the crown.
   const trunk = mergeGeometries([
-    place(new CylinderGeometry(0.22, 0.42, 5.2, 7), 0, 2.6, 0),
-    place(new CylinderGeometry(0.08, 0.16, 2.6, 5), 0.6, 4.6, 0, 0, 0, -0.7),
-    place(new CylinderGeometry(0.07, 0.15, 2.4, 5), -0.5, 4.8, 0.3, 0.4, 0, 0.7),
+    clean(taperedTube([new Vector3(0, -0.3, 0), new Vector3(0.05, 1.2, 0.02), new Vector3(-0.08, 3.2, 0.06), new Vector3(0.05, 5.2, -0.03)], (t) => 0.44 * Math.pow(1 - t, 0.6) * (1 + 0.5 * Math.max(0, 0.12 - t) / 0.12) + 0.12, 8, 8)),
+    clean(taperedTube([new Vector3(0, 3.6, 0), new Vector3(0.5, 4.4, 0.05), new Vector3(1.2, 5.4, 0.2)], (t) => 0.15 * (1 - t) + 0.04, 5, 5)),
+    clean(taperedTube([new Vector3(0, 3.9, 0), new Vector3(-0.45, 4.6, 0.2), new Vector3(-1.0, 5.6, 0.45)], (t) => 0.14 * (1 - t) + 0.04, 5, 5)),
   ])!;
   const spots: Array<[number, number, number, number]> = [
     [0, 6.6, 0, 2.6],
@@ -240,7 +232,7 @@ function broadleaf(rng: Rng): Species {
 }
 
 function birch(rng: Rng): Species {
-  const trunk = mergeGeometries([place(new CylinderGeometry(0.14, 0.24, 7.5, 6), 0, 3.75, 0)])!;
+  const trunk = clean(taperedTube([new Vector3(0, -0.2, 0), new Vector3(0.06, 2.5, 0.03), new Vector3(-0.05, 5.0, -0.02), new Vector3(0.04, 7.5, 0.02)], (t) => 0.25 * (1 - t * 0.55), 7, 8));
   const spots: Array<[number, number, number, number]> = [];
   for (let i = 0; i < 5; i++) spots.push([rng.range(-0.8, 0.8), 5.6 + i * 0.75, rng.range(-0.8, 0.8), 1.3]);
   return {
@@ -255,7 +247,7 @@ function birch(rng: Rng): Species {
 }
 
 function conifer(): Species {
-  const trunk = place(new CylinderGeometry(0.16, 0.34, 3.0, 6), 0, 1.5, 0);
+  const trunk = clean(taperedTube([new Vector3(0, -0.2, 0), new Vector3(0, 1.4, 0.02), new Vector3(0, 3.0, 0)], (t) => 0.34 * (1 - t * 0.5), 7, 4));
   // Drooping branch cards radiating from the trunk in tiers, around a thin dark core.
   const pos: number[] = [];
   const nor: number[] = [];
@@ -416,15 +408,18 @@ export class Foliage {
     const rng = new Rng(777);
     const gt = WORLD.giantTree;
     const base = this.terrain.height(gt.x, gt.z) - 1;
-    const parts: BufferGeometry[] = [place(new CylinderGeometry(2.6, 4.6, 42, 12), 0, 21, 0)];
-    for (let i = 0; i < 7; i++) {
-      const a = (i / 7) * Math.PI * 2;
-      parts.push(place(new CylinderGeometry(0.4, 1.6, 9, 6), Math.cos(a) * 4, 1.5, Math.sin(a) * 4, Math.sin(a) * 1.1, 0, -Math.cos(a) * 1.1));
+    // Flared trunk (lathe), sinuous surface roots and sweeping limbs (tapered splines).
+    const parts: BufferGeometry[] = [clean(lathe([[6.5, -1.5], [4.6, 1.5], [3.3, 6], [2.8, 18], [2.6, 32], [2.0, 42], [0.4, 45]], 36))];
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2 + rng.range(-0.2, 0.2);
+      const d = rng.range(7, 11);
+      parts.push(clean(taperedTube([new Vector3(Math.cos(a) * 2.5, 3.5, Math.sin(a) * 2.5), new Vector3(Math.cos(a) * 5, 0.8, Math.sin(a) * 5), new Vector3(Math.cos(a) * d, -0.4, Math.sin(a) * d)], (t) => 1.3 * (1 - t) + 0.15, 10, 14, 0.7)));
     }
     for (let i = 0; i < 9; i++) {
       const a = (i / 9) * Math.PI * 2 + 0.3;
-      const y = 26 + (i % 3) * 6;
-      parts.push(place(new CylinderGeometry(0.35, 1.2, 16, 6), Math.cos(a) * 6, y, Math.sin(a) * 6, Math.sin(a) * 1.0, 0, -Math.cos(a) * 1.0));
+      const y = 24 + (i % 3) * 6;
+      const r = rng.range(11, 17);
+      parts.push(clean(taperedTube([new Vector3(0, y, 0), new Vector3(Math.cos(a) * r * 0.45, y + 5, Math.sin(a) * r * 0.45), new Vector3(Math.cos(a) * r, y + 12, Math.sin(a) * r)], (t) => 1.25 * (1 - t) + 0.2, 10, 14)));
     }
     const trunk = new InstancedMesh(mergeGeometries(parts)!, new MeshStandardMaterial({ color: '#6e5a42', roughness: 0.95 }), 1);
     const spots: Array<[number, number, number, number]> = [];
@@ -537,8 +532,8 @@ export class Foliage {
 
   private buildRocks(): void {
     const rng = new Rng(3131);
-    const geo = jitter(new DodecahedronGeometry(1, 1), 0.18, rng);
-    const mat = new MeshStandardMaterial({ color: '#ffffff', roughness: 0.9, flatShading: true });
+    const geo = smoothRock(7, 1);
+    const mat = new MeshStandardMaterial({ color: '#ffffff', roughness: 0.9 });
     const ms: Matrix4[] = [];
     const cs: Color[] = [];
     const half = WORLD.size / 2 - 30;
@@ -564,7 +559,27 @@ export class Foliage {
     im.receiveShadow = true;
     im.computeBoundingSphere();
     this.group.add(im);
+    this.rocks = im;
   }
+
+  /** Temporarily hide ground cover (used while rendering water reflections). */
+  setGroundCoverVisible(v: boolean): void {
+    if (v) {
+      for (const m of this.hiddenForReflection) m.visible = true;
+      this.hiddenForReflection.length = 0;
+      return;
+    }
+    for (const c of this.grassChunks) for (const m of c.meshes) if (m.visible) {
+      m.visible = false;
+      this.hiddenForReflection.push(m);
+    }
+    if (this.rocks?.visible) {
+      this.rocks.visible = false;
+      this.hiddenForReflection.push(this.rocks);
+    }
+  }
+  private readonly hiddenForReflection: Object3D[] = [];
+  private rocks: InstancedMesh | null = null;
 
   update(dt: number, camPos: Vector3, windStrength: number): void {
     Wind.time.value += dt;

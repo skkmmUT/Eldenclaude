@@ -344,6 +344,10 @@ export abstract class Character {
   }
 
   private updateAnimation(dt: number): void {
+    // Distance LOD: full detail near the camera, simplified farther away.
+    const cam = this.ctx.camera.camera.position;
+    const d = Math.hypot(cam.x - this.position.x, cam.z - this.position.z);
+    this.rig.setLod(d < 14 ? 0 : d < 32 ? 1 : 2);
     const pose = this.animator.update(dt);
     if (this.flinch > 0.001) {
       const f = this.flinch;

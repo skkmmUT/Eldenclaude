@@ -1,5 +1,8 @@
-import { BoxGeometry, BufferAttribute, Color, ConeGeometry, Mesh, MeshStandardMaterial, Vector3, type Scene } from 'three';
+import { BufferAttribute, Color, ConeGeometry, Mesh, MeshStandardMaterial, Vector3, type Scene } from 'three';
 import { Rng, smoothstep } from '@/core/MathUtils';
+import { seg } from '@/render/SmoothGeometry';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { BufferGeometry } from 'three';
 import { Noise2D } from '@/core/Noise';
 import type { CollisionWorld } from '@/physics/CollisionWorld';
 import type { GraphicsProfile } from '@/render/GraphicsSettings';
@@ -8,7 +11,7 @@ import { Terrain } from '../terrain/Terrain';
 import { Foliage } from '../terrain/Foliage';
 import { WaterSurface } from '../terrain/WaterSurface';
 import { WORLD, riverZ, roadX } from '../terrain/WorldLayout';
-import { archBetween, archFrameGeometry, curtainWall, gothicPillar, mat4, rubble, solidBox, tower, type BuildCtx } from '../Architecture';
+import { rbox, archBetween, archFrameGeometry, curtainWall, gothicPillar, mat4, rubble, solidBox, tower, type BuildCtx } from '../Architecture';
 
 export interface OverworldInstance {
   terrain: Terrain;
@@ -36,10 +39,11 @@ export function buildOverworld(scene: Scene, world: CollisionWorld, profile: Gra
   world.terrain = terrain;
   world.waterLevel = WORLD.waterLevel;
   world.killY = -30;
-  const water = new WaterSurface(scene, profile.waterReflections);
+  const water = new WaterSurface(scene, profile.waterReflections, (x, z) => terrain.height(x, z));
   const foliage = new Foliage(terrain, world, profile.foliageDensity);
   foliage.treeDistance = profile.treeDistance;
   scene.add(foliage.group);
+  water.excludeFromReflection((hidden) => foliage.setGroundCoverVisible(!hidden));
 
   const batch = new StaticBatcher(64);
   const b: BuildCtx = { batch, world, mats };
@@ -79,7 +83,7 @@ export function buildOverworld(scene: Scene, world: CollisionWorld, profile: Gra
     }
     for (let i = 0; i <= arches; i++) {
       const z0 = cz - length / 2 + (i / arches) * length;
-      batch.add(new BoxGeometry(width + 1.2, 4.2, 1.6), mats.stoneDark, mat4(cx, -0.9, z0), true, true, 0.25);
+      batch.add(rbox(width + 1.2, 4.2, 1.6), mats.stoneDark, mat4(cx, -0.9, z0), true, true, 0.25);
     }
     return north;
   };
@@ -108,7 +112,7 @@ export function buildOverworld(scene: Scene, world: CollisionWorld, profile: Gra
     const hgt = rng.range(2.5, 6.5);
     const len = Math.hypot(x1 - x0, z1 - z0);
     const yaw = Math.atan2(x1 - x0, z1 - z0);
-    batch.add(new BoxGeometry(1.6, hgt, len), mats.stone, mat4((x0 + x1) / 2, fy + hgt / 2, (z0 + z1) / 2, 0, yaw), true, true, 0.25);
+    batch.add(rbox(1.6, hgt, len), mats.stone, mat4((x0 + x1) / 2, fy + hgt / 2, (z0 + z1) / 2, 0, yaw), true, true, 0.25);
     // collider approximated by short boxes along the segment
     for (let k = 0; k < 4; k++) {
       const t = (k + 0.5) / 4;
@@ -149,7 +153,7 @@ export function buildOverworld(scene: Scene, world: CollisionWorld, profile: Gra
     tower(b, x, z, 5 * scale, 34 * scale, 14 * scale, y, false);
     tower(b, x + 16 * scale, z - 8 * scale, 3.5 * scale, 24 * scale, 10 * scale, y, false);
     tower(b, x - 15 * scale, z + 6 * scale, 3.8 * scale, 27 * scale, 11 * scale, y, false);
-    batch.add(new BoxGeometry(30 * scale, 14 * scale, 18 * scale), mats.stone, mat4(x, y + 7 * scale, z), true, true, 0.25);
+    batch.add(rbox(30 * scale, 14 * scale, 18 * scale), mats.stone, mat4(x, y + 7 * scale, z), true, true, 0.25);
     batch.add(new ConeGeometry(17 * scale, 9 * scale, 4), mats.roof, mat4(x, y + 18.5 * scale, z, 0, Math.PI / 4, 0, 1, 1, 0.65), true, false);
   };
   castle(-300, 395, 1.3);
@@ -164,14 +168,17 @@ export function buildOverworld(scene: Scene, world: CollisionWorld, profile: Gra
   // ---------------------------------------------------------------------------------
   // Distant mountain range beyond the playable terrain (with snow caps)
   // ---------------------------------------------------------------------------------
-  const mountainMat = new MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true });
+  const mountainMat = new MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
   const n = new Noise2D(404);
   const mrng = new Rng(808);
   for (let i = 0; i < 46; i++) {
     const a = (i / 46) * Math.PI * 2 + mrng.range(-0.04, 0.04);
     const d = mrng.range(640, 860);
     const h = mrng.range(160, 360);
-    const geo = new ConeGeometry(mrng.range(140, 230), h, 9, 6);
+    let geo: BufferGeometry = new ConeGeometry(mrng.range(140, 230), h, seg(40, 12), seg(22, 8));
+    geo.deleteAttribute('uv');
+    geo.deleteAttribute('normal');
+    geo = mergeVertices(geo);
     const pos = geo.attributes.position;
     const col = new Float32Array(pos.count * 3);
     const c = new Color();
@@ -180,7 +187,8 @@ export function buildOverworld(scene: Scene, world: CollisionWorld, profile: Gra
       const jx = pos.getX(k);
       const jz = pos.getZ(k);
       const nn = n.fbm(jx * 0.01 + i, jz * 0.01, 3);
-      if (y > 2 && y < h - 2) pos.setXYZ(k, jx * (0.85 + nn * 0.4), pos.getY(k) + (nn - 0.5) * 30, jz * (0.85 + nn * 0.4));
+      const ridge = n.ridged(jx * 0.012 + i * 3, jz * 0.012 + pos.getY(k) * 0.01, 4);
+      if (y > 2 && y < h - 2) pos.setXYZ(k, jx * (0.82 + nn * 0.36 + ridge * 0.12), pos.getY(k) + (nn - 0.5) * 34, jz * (0.82 + nn * 0.36 + ridge * 0.12));
       const snowLine = 0.62 + (nn - 0.5) * 0.2;
       c.set('#5f5c58').lerp(new Color('#4d6a3c'), smoothstep(0.3, 0.0, y / h) * 0.85);
       c.lerp(new Color('#f4f6fa'), smoothstep(snowLine, snowLine + 0.06, y / h));

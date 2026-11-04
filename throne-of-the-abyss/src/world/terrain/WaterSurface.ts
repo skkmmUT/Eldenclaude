@@ -57,7 +57,31 @@ export class WaterSurface {
   private readonly normals = waterNormals();
   private readonly simpleMat: MeshStandardMaterial;
 
-  constructor(scene: Scene, reflections: boolean) {
+  /** Coarse map of where water exists (16 m cells) — reflections only render near it. */
+  private readonly wetCells: Uint8Array;
+  private readonly cell = 16;
+  private readonly cells: number;
+  private reflectionsEnabled = true;
+  /** Is the planar-reflection pass active this frame (for diagnostics/tests). */
+  reflecting = false;
+
+  constructor(scene: Scene, reflections: boolean, heightAt: (x: number, z: number) => number) {
+    this.cells = Math.ceil(WORLD.size / this.cell);
+    this.wetCells = new Uint8Array(this.cells * this.cells);
+    const half = WORLD.size / 2;
+    for (let j = 0; j < this.cells; j++) {
+      for (let i = 0; i < this.cells; i++) {
+        let wet = 0;
+        for (let sy = 0; sy < 3 && !wet; sy++) {
+          for (let sx = 0; sx < 3 && !wet; sx++) {
+            const x = -half + (i + (sx + 0.5) / 3) * this.cell;
+            const z = -half + (j + (sy + 0.5) / 3) * this.cell;
+            if (heightAt(x, z) < WORLD.waterLevel) wet = 1;
+          }
+        }
+        this.wetCells[j * this.cells + i] = wet;
+      }
+    }
     const size = WORLD.size;
     const geo = new PlaneGeometry(size, size);
     this.reflective = new Water(geo, {
@@ -92,12 +116,46 @@ export class WaterSurface {
     this.setReflections(reflections);
   }
 
+  /** Hide cheap-to-miss detail (grass, pebbles) while the mirror pass renders. */
+  excludeFromReflection(hide: (hidden: boolean) => void): void {
+    const original = this.reflective.onBeforeRender.bind(this.reflective);
+    this.reflective.onBeforeRender = (...args: Parameters<typeof original>) => {
+      hide(true);
+      original(...args);
+      hide(false);
+    };
+  }
+
   setReflections(on: boolean): void {
+    this.reflectionsEnabled = on;
     this.reflective.visible = on;
     this.simple.visible = !on;
   }
 
-  update(dt: number, sunDir: Vector3, sunColor: Color, night: number): void {
+  private waterNear(x: number, z: number, radius: number): boolean {
+    const half = WORLD.size / 2;
+    const r = Math.ceil(radius / this.cell);
+    const ci = Math.floor((x + half) / this.cell);
+    const cj = Math.floor((z + half) / this.cell);
+    for (let j = cj - r; j <= cj + r; j++) {
+      if (j < 0 || j >= this.cells) continue;
+      for (let i = ci - r; i <= ci + r; i++) {
+        if (i < 0 || i >= this.cells) continue;
+        if (!this.wetCells[j * this.cells + i]) continue;
+        const cx = -half + (i + 0.5) * this.cell;
+        const cz = -half + (j + 0.5) * this.cell;
+        if (Math.hypot(cx - x, cz - z) <= radius + this.cell * 0.7) return true;
+      }
+    }
+    return false;
+  }
+
+  update(dt: number, sunDir: Vector3, sunColor: Color, night: number, cameraPos?: Vector3): void {
+    // Planar reflections re-render the whole scene; only pay for them near water.
+    const near = !!cameraPos && this.waterNear(cameraPos.x, cameraPos.z, 46);
+    this.reflecting = this.reflectionsEnabled && near;
+    this.reflective.visible = this.reflecting;
+    this.simple.visible = !this.reflecting;
     const u = this.reflective.material.uniforms;
     u.time.value += dt * 0.6;
     u.sunDirection.value.copy(sunDir).normalize();

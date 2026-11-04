@@ -1,5 +1,4 @@
 import {
-  BoxGeometry,
   ConeGeometry,
   CylinderGeometry,
   Group,
@@ -8,6 +7,7 @@ import {
 } from 'three';
 import type { GameContext } from '@/core/GameContext';
 import { Rng } from '@/core/MathUtils';
+import { seg } from '@/render/SmoothGeometry';
 import { glowMaterial, surfaceMaterial } from '@/render/Materials';
 import { HumanoidRig } from '@/characters/HumanoidRig';
 import { Pose } from '@/animation/Pose';
@@ -24,6 +24,7 @@ import { Chest } from '../Chest';
 import { Pickup } from '../Pickup';
 import { Breakable } from '../Breakable';
 import {
+  rbox,
   archBetween,
   archFrameGeometry,
   banner,
@@ -87,7 +88,7 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
   // ---------------------------------------------------------------------------------
   // Ground & enclosure
   // ---------------------------------------------------------------------------------
-  batch.add(new BoxGeometry(84, 2, 96), mats.floor, mat4(0, -1, 2), false, true, 0.22);
+  batch.add(rbox(84, 2, 96), mats.floor, mat4(0, -1, 2), false, true, 0.22);
   world.addBox(-42, -4, -46, 42, 0, 50, { blocksSight: false });
 
   curtainWall(b, -41, -45, -41, 49, 10); // west
@@ -102,8 +103,8 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
   world.addBox(-6, 0, -46.5, -3.5, 14, -43.5);
   world.addBox(3.5, 0, -46.5, 6, 14, -43.5);
   world.addBox(-6, 8.2, -46.5, 6, 14, -43.5);
-  for (let i = -3; i <= 3; i++) batch.add(new BoxGeometry(0.15, 4.5, 0.15), mats.iron, mat4(i * 0.9, 10.6, -43.3), true, false);
-  for (let j = 0; j < 3; j++) batch.add(new BoxGeometry(6.6, 0.12, 0.12), mats.iron, mat4(0, 8.8 + j * 1.5, -43.3), true, false);
+  for (let i = -3; i <= 3; i++) batch.add(rbox(0.15, 4.5, 0.15), mats.iron, mat4(i * 0.9, 10.6, -43.3), true, false);
+  for (let j = 0; j < 3; j++) batch.add(rbox(6.6, 0.12, 0.12), mats.iron, mat4(0, 8.8 + j * 1.5, -43.3), true, false);
   tower(b, -41, -45, 4, 20, 10);
   tower(b, 41, -45, 4, 20, 10);
   tower(b, -41, 49, 4.5, 24, 12);
@@ -121,14 +122,14 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
   world.addBox(5.5, 0, 47.7, 26, 30, 51.5);
   world.addBox(-5.5, landingY + 15.5, 47.7, 5.5, 30, 51.5);
   batch.add(new ConeGeometry(18, 12, 4), mats.stoneDark, mat4(0, landingY + 32, 49.5, 0, Math.PI / 4, 0, 1, 1, 0.2), true, false);
-  for (const x of [-12, 12]) batch.add(new ConeGeometry(0.9, 7, 6), mats.stoneDark, mat4(x, landingY + 29.5, 48.2), true, false);
+  for (const x of [-12, 12]) batch.add(new ConeGeometry(0.9, 7, seg(16)), mats.stoneDark, mat4(x, landingY + 29.5, 48.2), true, false);
   roseWindow(b, 0, landingY + 18.5, 47.6, 4.2);
   for (const x of [-22, 22]) {
-    batch.add(new CylinderGeometry(3.2, 3.6, 36, 8), mats.stone, mat4(x, 18, 49.5), true, true, 0.25);
-    batch.add(new CylinderGeometry(3.6, 3.4, 1.2, 8), mats.trim, mat4(x, 36.6, 49.5), false, false);
-    batch.add(new ConeGeometry(3.4, 18, 8), mats.stoneDark, mat4(x, 46.2, 49.5), true, false);
-    batch.add(new ConeGeometry(0.25, 5, 6), mats.trim, mat4(x, 57, 49.5), false, false);
-    for (let k = 0; k < 3; k++) batch.add(new BoxGeometry(0.6, 4, 0.2), mats.glowCrimson, mat4(x, 12 + k * 8, 46.1), false, false);
+    batch.add(new CylinderGeometry(3.2, 3.6, 36, seg(28)), mats.stone, mat4(x, 18, 49.5), true, true, 0.25);
+    batch.add(new CylinderGeometry(3.6, 3.4, 1.2, seg(28)), mats.trim, mat4(x, 36.6, 49.5), false, false);
+    batch.add(new ConeGeometry(3.4, 18, seg(28)), mats.stoneDark, mat4(x, 46.2, 49.5), true, false);
+    batch.add(new ConeGeometry(0.25, 5, seg(12)), mats.trim, mat4(x, 57, 49.5), false, false);
+    for (let k = 0; k < 3; k++) batch.add(rbox(0.6, 4, 0.2), mats.glowCrimson, mat4(x, 12 + k * 8, 46.1), false, false);
     world.addCylinder(x, 49.5, 3.6, 0, 40);
   }
   // Sealed great door — two leaves hinged on their outer edges; opens when the elite falls.
@@ -138,19 +139,19 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
   for (const side of [-1, 1]) {
     const leaf = new Group();
     leaf.position.set(side * 5.2, 0, 0);
-    const slab = new Mesh(new BoxGeometry(5.2, 14.5, 0.5), doorMat);
+    const slab = new Mesh(rbox(5.2, 14.5, 0.5), doorMat);
     slab.position.set(-side * 2.6, 7.25, 0);
     slab.castShadow = true;
     leaf.add(slab);
     for (let r = 0; r < 4; r++) {
-      const band = new Mesh(new BoxGeometry(5.2, 0.25, 0.6), mats.trim);
+      const band = new Mesh(rbox(5.2, 0.25, 0.6), mats.trim);
       band.position.set(-side * 2.6, 2 + r * 3.4, 0);
       leaf.add(band);
     }
     gateGroup.add(leaf);
     leaves.push(leaf);
   }
-  const sealRing = new Mesh(new CylinderGeometry(1.6, 1.6, 0.1, 32), glowMaterial('#ff2a4a', 2.4));
+  const sealRing = new Mesh(new CylinderGeometry(1.6, 1.6, 0.1, seg(48)), glowMaterial('#ff2a4a', 2.4));
   sealRing.rotation.x = Math.PI / 2;
   sealRing.position.set(0, 7, -0.35);
   gateGroup.add(sealRing);
@@ -175,7 +176,7 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
     },
   };
   // Inner nave stub behind the door (so the opening reads as depth)
-  batch.add(new BoxGeometry(10.6, 15, 0.4), surfaceMaterial({ color: '#05030a', rim: 0 }), mat4(0, landingY + 7.5, 60), false, false);
+  batch.add(rbox(10.6, 15, 0.4), surfaceMaterial({ color: '#05030a', rim: 0 }), mat4(0, landingY + 7.5, 60), false, false);
   solidBox(b, 0, landingY / 2, 55, 6, landingY / 2, 6.5, mats.stoneDark, false);
   world.addBox(-6, landingY, 60, 6, 20, 61);
   world.addBox(-6.5, landingY, 50, -5.5, 20, 61);
@@ -199,7 +200,7 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
     if (a.full && c.full) archBetween(b, a.p, c.p, 8.4, 0.9);
   }
   solidBox(b, 0, 0.5, 0, 2.6, 0.5, 2.6, mats.stoneDark);
-  batch.add(new BoxGeometry(5.6, 0.2, 5.6), mats.trim, mat4(0, 1.05, 0), false, true);
+  batch.add(rbox(5.6, 0.2, 5.6), mats.trim, mat4(0, 1.05, 0), false, true);
   solidBox(b, 0, 1.4, 0, 1.9, 0.3, 1.9, mats.stone);
   // The Fallen King: a colossal kneeling statue, head bowed over a planted sword.
   const statue = new HumanoidRig({
@@ -213,12 +214,13 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
   statue.root.position.set(0, 1.7, 0.3);
   statue.root.rotation.y = Math.PI;
   statue.root.updateMatrixWorld(true);
+  batch.add(statue.bakeBody(), mats.statue, statue.bodyHigh.matrixWorld.clone(), true, true);
   for (const m of statue.meshes) {
     const isGlow = (m.material as { isMeshBasicMaterial?: boolean }).isMeshBasicMaterial;
     batch.add(m.geometry, isGlow ? mats.glowCrimson : mats.statue, m.matrixWorld.clone(), true, true);
   }
-  batch.add(new BoxGeometry(0.35, 5.2, 0.08), mats.statue, mat4(0, 3.9, -1.4, 0.12), true, true, 0.25);
-  batch.add(new BoxGeometry(1.6, 0.25, 0.25), mats.statue, mat4(0, 6.2, -1.1, 0.12), true, true);
+  batch.add(rbox(0.35, 5.2, 0.08), mats.statue, mat4(0, 3.9, -1.4, 0.12), true, true, 0.25);
+  batch.add(rbox(1.6, 0.25, 0.25), mats.statue, mat4(0, 6.2, -1.1, 0.12), true, true);
   world.addCylinder(0, 0, 1.6, 1.7, 6.5);
   fallenColumn(b, -7, 6, 0.7, 5, 0.6);
   fallenColumn(b, 8.5, -7.5, -0.4, 4.2, 0.55);
@@ -247,13 +249,13 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
   // ---------------------------------------------------------------------------------
   const terraceY = 3.2;
   solidBox(b, 31, terraceY / 2, 16, 9, terraceY / 2, 10, mats.stoneDark);
-  batch.add(new BoxGeometry(18.2, 0.15, 20.2), mats.floor, mat4(31, terraceY + 0.01, 16), false, true, 0.22);
+  batch.add(rbox(18.2, 0.15, 20.2), mats.floor, mat4(31, terraceY + 0.01, 16), false, true, 0.22);
   stairs(b, new Vector3(13.6, 0, 10), 1, 0, 8, 0.4, 1.05, 4);
   solidBox(b, 31, terraceY + 0.5, 6.3, 9, 0.5, 0.3, mats.stone);
   solidBox(b, 31, terraceY + 0.5, 25.7, 9, 0.5, 0.3, mats.stone);
   solidBox(b, 22.3, terraceY + 0.5, 14, 0.3, 0.5, 2, mats.stone);
   solidBox(b, 22.3, terraceY + 0.5, 25, 0.3, 0.5, 0.9, mats.stone);
-  for (const z of [6.3, 25.7]) for (let x = 23; x <= 39; x += 4) batch.add(new BoxGeometry(0.5, 1.4, 0.5), mats.stoneDark, mat4(x, terraceY + 0.7, z), true, true, 0.25);
+  for (const z of [6.3, 25.7]) for (let x = 23; x <= 39; x += 4) batch.add(rbox(0.5, 1.4, 0.5), mats.stoneDark, mat4(x, terraceY + 0.7, z), true, true, 0.25);
   gothicPillar(b, 25, 24, 5, 0.5, terraceY, false);
   gothicPillar(b, 37, 24, 5, 0.5, terraceY, true);
 
@@ -266,7 +268,7 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
   }
   solidBox(b, -33.5, 7.6, -12, 4.8, 0.4, 13, mats.stoneDark);
   for (let z = -24; z < 0; z += 6) archBetween(b, new Vector3(-30, 0, z), new Vector3(-30, 0, z + 6), 5.2, 0.6);
-  batch.add(new BoxGeometry(9, 0.8, 5), mats.stoneDark, mat4(-33, 1.2, 9, 0.35, 0.2, 0.3), true, true, 0.25);
+  batch.add(rbox(9, 0.8, 5), mats.stoneDark, mat4(-33, 1.2, 9, 0.35, 0.2, 0.3), true, true, 0.25);
   world.addBox(-37, 0, 7, -29, 2.0, 11.5, { blocksSight: false });
   rubble(b, -33, 14, 3, 16, 21);
 
