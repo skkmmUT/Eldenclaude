@@ -487,6 +487,184 @@ try {
   await ev(() => g.env.time.set(10));
   await shot('09_overworld');
 
+  // --- RPG depth: loot, armour, rings, weapon arts, spells --------------------------------------
+  const drops = await ev(() => ({ plate: g.player.inventory.armor.includes('gravebound_plate'), signet: g.player.inventory.accessories.includes('gravebound_signet') }));
+  check('elite drops the Gravebound set', drops.plate && drops.signet, JSON.stringify(drops));
+
+  const loot = await ev(() => {
+    for (const e of g.enemies) e.setPlayer(null);
+    const report = { chests: 0, chestTotal: 0, items: 0, itemTotal: 0, failed: [] };
+    const tryInteract = (target, isDone) => {
+      const offsets = [[1.35, 0], [-1.35, 0], [0, 1.35], [0, -1.35], [0.95, 0.95], [-0.95, -0.95], [0.95, -0.95], [-0.95, 0.95], [0, 0]];
+      for (const [dx, dz] of offsets) {
+        T.heal();
+        T.place(target.position.x + dx, target.position.y + 0.6, target.position.z + dz, Math.atan2(-dx, -dz));
+        g.simulate(0.25);
+        if (g.player.focus !== target) continue;
+        T.press('KeyE');
+        g.simulate(0.2);
+        if (isDone()) return true;
+      }
+      return false;
+    };
+    for (const c of g.level.chests) {
+      if (c.opened) continue;
+      report.chestTotal++;
+      if (tryInteract(c, () => c.opened)) report.chests++;
+      else report.failed.push(c.id);
+    }
+    for (const p of g.level.pickups) {
+      if (p.taken || p.content.kind !== 'item') continue;
+      report.itemTotal++;
+      if (tryInteract(p, () => p.taken)) report.items++;
+      else report.failed.push(p.id);
+    }
+    if (g.menus.open === 'reader') g.menus.closeAll?.();
+    g.player.inputLocked = false;
+    for (const e of g.enemies) if (!e.dead) e.setPlayer(g.player);
+    const inv = g.player.inventory;
+    return { ...report, weapons: inv.weapons.length, armor: inv.armor.length, accessories: inv.accessories.length, spells: inv.spells.length };
+  });
+  check('every chest and item in the world can be reached and taken', loot.failed.length === 0 && loot.chests === loot.chestTotal && loot.items === loot.itemTotal, JSON.stringify(loot));
+  check('loot fills the inventory (10 weapons, 9 armour, 7 talismans, 18 spells)', loot.weapons === 10 && loot.armor === 9 && loot.accessories === 7 && loot.spells === 18, JSON.stringify(loot));
+
+  const armour = await ev(() => {
+    const p = g.player;
+    const rig0 = p.rig;
+    const before = { phys: p.absorption.physical, poise: p.maxPoise, load: p.equipLoad };
+    g.equipArmor('chest', 'gravebound_plate');
+    g.equipArmor('head', 'gravebound_helm');
+    const after = { phys: p.absorption.physical, poise: p.maxPoise, load: p.equipLoad, rebuilt: p.rig !== rig0, helmet: p.appearance().helmet, pauldrons: p.appearance().pauldrons };
+    g.equipAccessory(0, 'gravebound_signet');
+    const ringPoise = p.maxPoise - after.poise;
+    g.equipAccessory(0, null);
+    return { before, after, ringPoise };
+  });
+  check('heavy armour raises absorption, poise and weight', armour.after.phys > armour.before.phys + 0.05 && armour.after.poise > armour.before.poise + 10 && armour.after.load > armour.before.load, JSON.stringify(armour));
+  check('changing armour rebuilds the character model', armour.after.rebuilt && armour.after.helmet === 'horned' && armour.after.pauldrons === 'spiked', JSON.stringify(armour.after));
+  check('ring adds its passive effect (+15 poise)', Math.abs(armour.ringPoise - 15) < 0.01, String(armour.ringPoise));
+
+  const rollLoad = await ev(() => {
+    const p = g.player;
+    const measure = () => {
+      T.heal();
+      T.place(-20, 0, -36, 0);
+      g.simulate(0.3);
+      const p0 = p.position.clone();
+      g.input.simulate('KeyD', true);
+      g.simulate(0.05);
+      T.press('ShiftLeft', 4);
+      for (let i = 0; i < 40; i++) g.step(1 / 60, false);
+      g.input.simulate('KeyD', false);
+      g.simulate(0.4);
+      return p.position.distanceTo(p0);
+    };
+    for (const s of ['head', 'chest', 'hands', 'legs']) g.equipArmor(s, null);
+    const lightClass = p.loadClass;
+    const light = measure();
+    g.equipArmor('chest', 'gravebound_plate');
+    g.equipArmor('head', 'gravebound_helm');
+    g.equipArmor('hands', 'heir_gauntlets');
+    g.equipArmor('legs', 'heir_greaves');
+    const wi = p.inventory.weapons.indexOf('gravel_maul');
+    g.equipWeapon(wi);
+    const heavyClass = p.loadClass;
+    const heavy = measure();
+    g.equipArmor('chest', 'heir_cuirass');
+    g.equipArmor('head', 'heir_crown');
+    g.equipWeapon(0);
+    return { lightClass, light, heavyClass, heavy, restored: p.loadClass };
+  });
+  check('equip load changes the roll (light rolls farther than heavy)', rollLoad.lightClass === 'light' && (rollLoad.heavyClass === 'heavy' || rollLoad.heavyClass === 'overloaded') && rollLoad.light > rollLoad.heavy + 0.8, JSON.stringify(rollLoad));
+
+  const arts = await ev(() => {
+    const p = g.player;
+    T.heal();
+    T.place(-20, 0, -36, 0);
+    g.simulate(0.3);
+    const inv = p.inventory;
+    g.equipWeapon(inv.weapons.indexOf('bearded_axe'));
+    const m0 = p.mana;
+    const dmg0 = p.mods.damageMul;
+    T.press('KeyG');
+    g.simulate(1.0);
+    const buff = { has: p.buffs.some((b) => b.id === 'war_cry'), mana: m0 - p.mana, dmgMul: p.mods.damageMul / dmg0 };
+    T.idle();
+    g.equipWeapon(inv.weapons.indexOf('keepwarden_halberd'));
+    T.heal();
+    T.press('KeyG');
+    g.simulate(0.05);
+    const attackArt = p.attack?.data.id ?? null;
+    T.idle();
+    g.equipWeapon(0);
+    return { buff, attackArt };
+  });
+  check('buff weapon art (War Cry) spends mana and raises damage', arts.buff.has && arts.buff.mana === 12 && Math.abs(arts.buff.dmgMul - 1.2) < 0.01, JSON.stringify(arts.buff));
+  check('attack weapon art (Reaping Arc) performs its attack', arts.attackArt === 'hb_art', String(arts.attackArt));
+
+  const magic = await ev(() => {
+    const p = g.player;
+    const inv = p.inventory;
+    const e = g.enemies.find((x) => x.spawn.id === 'rev_graves');
+    const prep = (spellId, dist = 7) => {
+      e.reset();
+      e.setPlayer(null);
+      T.heal();
+      T.place(e.position.x, 0, e.position.z - dist, 0);
+      T.face(e.position);
+      inv.spellIndex = inv.spells.indexOf(spellId);
+      p.spellCooldowns.clear();
+      g.simulate(0.2);
+    };
+    const cast = (secs) => {
+      T.press('KeyC');
+      g.simulate(secs);
+    };
+    const out = {};
+    prep('abyssal_meteor', 6);
+    p.lockTarget = e;
+    let hp0 = e.hp;
+    cast(3.2);
+    out.meteor = hp0 - e.hp;
+    prep('frozen_tomb', 3);
+    hp0 = e.hp;
+    cast(0.9);
+    out.frozen = e.frozen > 0;
+    out.tomb = hp0 - e.hp;
+    prep('radiant_mend');
+    p.hp = p.maxHp * 0.4;
+    const h0 = p.hp;
+    cast(3);
+    out.heal = p.hp - h0;
+    prep('blood_spear', 7);
+    p.lockTarget = e;
+    const hpBefore = p.hp;
+    hp0 = e.hp;
+    cast(1.6);
+    out.bloodCost = hpBefore - p.hp;
+    out.blood = hp0 - e.hp;
+    prep('eternal_guardian');
+    cast(1.2);
+    out.summon = g.projectiles.activeEffects;
+    prep('sanctified_blade');
+    cast(1.5);
+    out.weaponExtra = p.mods.weaponExtra.holy ?? 0;
+    p.lockTarget = null;
+    e.setPlayer(p);
+    p.buffs.length = 0;
+    p.applyProgress(true);
+    return out;
+  });
+  check('Abyssal Meteor falls on the target', magic.meteor > 0, JSON.stringify(magic));
+  check('Frozen Tomb damages and freezes', magic.frozen && magic.tomb > 0, JSON.stringify(magic));
+  check('Radiant Mend restores health over time', magic.heal > 50, JSON.stringify(magic));
+  check('Blood Spear costs health and hits', magic.bloodCost > 0 && magic.blood > 0, JSON.stringify(magic));
+  check('Eternal Guardian summons an ally', magic.summon >= 1, JSON.stringify(magic));
+  check('Sanctified Blade adds holy damage to the weapon', magic.weaponExtra > 0, JSON.stringify(magic));
+  await ev(() => g.menus.showPause('equipment'));
+  await shot('10_equipment');
+  await ev(() => g.menus.closeAll());
+
   // --- Save, reload, continue ---------------------------------------------------------------------
   const saved = await ev(() => {
     g.player.progress.echoes = 4321;

@@ -122,6 +122,9 @@ export class HUD {
     if (b.bleed > 1) parts.push(this.statusHtml('Hemorrhage', '#ff2a4a', b.bleed / player.statusResist.bleed));
     if (b.poison > 1) parts.push(this.statusHtml('Venom', '#7ccf3a', b.poison / player.statusResist.poison));
     if (player.poisonTimer > 0) parts.push(this.statusHtml('Poisoned', '#9aef4a', player.poisonTimer / 18));
+    for (const bf of player.buffs) parts.push(this.statusHtml(bf.name, bf.color, 1 - bf.time / bf.duration));
+    if (player.loadClass === 'overloaded') parts.push(`<div class="status" style="color:#ff7a7a"><span class="ico"></span>Overloaded</div>`);
+    if (player.frozen > 0) parts.push(`<div class="status" style="color:#9ad8ff"><span class="ico"></span>Frozen</div>`);
     if (player.walkToggle) parts.push(`<div class="status" style="color:#bfb2d0"><span class="ico"></span>Walking</div>`);
     const html = parts.join('');
     if (this.statuses.innerHTML !== html) this.statuses.innerHTML = html;
@@ -131,7 +134,12 @@ export class HUD {
     const spell = inv.spell;
     this.setSlot(this.slotSpell, spell ? `<div class="glyph" style="color:${spell.glyph}"></div><div class="label">${spell.name}</div>` : '');
     this.setSlot(this.slotLeft, `<div class="glyph" style="color:#d8b25a;transform:rotate(45deg) scale(.7)"></div>`);
-    this.setSlot(this.slotWeapon, `<div class="blade"></div>`);
+    const art = player.weapon.art;
+    this.setSlot(
+      this.slotWeapon,
+      `<div class="blade"></div>` +
+        (art ? `<div class="label" style="opacity:${player.mana >= art.mana ? 1 : 0.45}">G · ${art.name}</div>` : ''),
+    );
     const item = inv.currentItem;
     const data = inv.currentItemData;
     this.setSlot(

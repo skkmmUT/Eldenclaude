@@ -9,12 +9,17 @@ import { InputBuffer } from '@/input/InputBuffer';
 import { getAttack } from '@/data/attacks';
 import { CONSUMABLES } from '@/data/items';
 import { APPEARANCES } from '@/data/appearances';
+import { ARMOR } from '@/data/armor';
 import type { AttackData, HitReaction } from '@/combat/AttackData';
 import type { Attributes } from '@/rpg/Attributes';
 import { PlayerProgress } from '@/rpg/PlayerProgress';
+import { addModifiers, combineAbsorptions, emptyModifiers, equipLoadClass, maxEquipLoad, type EquipLoadClass } from '@/rpg/Modifiers';
+import type { HumanoidAppearance } from '../HumanoidRig';
+import type { WeaponData } from '@/items/ItemTypes';
 import { Inventory } from '@/items/Inventory';
 import type { SpellData } from '@/magic/SpellTypes';
 import type { Interactable } from '@/world/Interactable';
+import { castSpell } from '@/magic/SpellEffects';
 import { Character } from '../Character';
 
 export type PlayerState =
@@ -29,6 +34,7 @@ export type PlayerState =
   | 'item'
   | 'cast'
   | 'critical'
+  | 'buffArt'
   | 'rest'
   | 'dead';
 
@@ -116,7 +122,7 @@ export class Player extends Character {
       maxMana: d.maxMana,
       maxPoise: 12,
       defense: d.defense,
-      absorption: { physical: 0.14, fire: 0.1, ice: 0.1, lightning: 0.08, holy: 0.08, dark: 0.12, arcane: 0.1 },
+      absorption: {},
       statusResist: d.statusResist,
       weapon: inv.weapon,
       radius: 0.36,
@@ -139,17 +145,79 @@ export class Player extends Character {
   /** Re-derive vitals after level-up or loading. */
   applyProgress(fill = true): void {
     const d = this.progress.derived();
-    this.maxHp = d.maxHp;
-    this.maxStamina = d.maxStamina;
-    this.maxMana = d.maxMana;
+    const inv = this.inventory;
+    const armor = inv.equippedArmor();
+    // Equipment modifiers (rings, amulet); buffs layer on top in `mods`.
+    const base = emptyModifiers();
+    for (const a of inv.equippedAccessories()) addModifiers(base, a.mods);
+    this.baseMods = base;
+    this.resetModsCache();
+    const m = this.mods;
+    this.maxHp = Math.round(d.maxHp * m.maxHpMul);
+    this.maxStamina = Math.round(d.maxStamina + m.maxStaminaAdd);
+    this.maxMana = Math.round(d.maxMana + m.maxManaAdd);
     this.defense = d.defense;
-    this.statusResist = d.statusResist;
+    this.absorption = combineAbsorptions(armor.map((a) => a.absorption));
+    this.maxPoise = 4 + armor.reduce((sum, a) => sum + a.poise, 0) + m.poise;
+    this.statusResist = {
+      poison: d.statusResist.poison + armor.reduce((sum, a) => sum + (a.statusResist?.poison ?? 0), 0),
+      bleed: d.statusResist.bleed + armor.reduce((sum, a) => sum + (a.statusResist?.bleed ?? 0), 0),
+    };
+    this.equipLoad = inv.equipWeight();
+    this.maxLoad = maxEquipLoad(this.progress.attributes.endurance);
+    this.loadClass = equipLoadClass(this.equipLoad, this.maxLoad);
+    this.refreshAppearance();
     if (fill) this.restoreAll();
     else {
       this.hp = Math.min(this.hp, this.maxHp);
       this.stamina = Math.min(this.stamina, this.maxStamina);
       this.mana = Math.min(this.mana, this.maxMana);
     }
+  }
+
+  equipLoad = 0;
+  maxLoad = 1;
+  loadClass: EquipLoadClass = 'medium';
+  private lookKey = '';
+
+  override equipWeapon(w: WeaponData): void {
+    super.equipWeapon(w);
+    // Weight changes the equip-load class; skip while the base constructor is running.
+    if (this.inventory) this.applyProgress(false);
+  }
+
+  protected override onModsChanged(): void {
+    this.applyProgress(false);
+  }
+
+  /** Model look derived from the base appearance and the equipped armour. */
+  appearance(): HumanoidAppearance {
+    const base = APPEARANCES.heir;
+    const look: HumanoidAppearance = { ...base, palette: { ...base.palette } };
+    const eq = this.inventory.equipped;
+    const head = eq.head ? ARMOR[eq.head] : null;
+    look.helmet = head?.look?.helmet ?? (head ? base.helmet : 'none');
+    const chest = eq.chest ? ARMOR[eq.chest] : null;
+    const cl = chest?.look;
+    if (cl) {
+      if (cl.armor) look.palette.armor = cl.armor;
+      if (cl.armorDark) look.palette.armorDark = cl.armorDark;
+      if (cl.trim) look.palette.trim = cl.trim;
+      if (cl.cloth) look.palette.cloth = cl.cloth;
+      if (cl.clothInner) look.palette.clothInner = cl.clothInner;
+      if (cl.pauldrons) look.pauldrons = cl.pauldrons;
+    }
+    if (!chest) look.pauldrons = 'rags';
+    return look;
+  }
+
+  private refreshAppearance(): void {
+    const look = this.appearance();
+    const key = JSON.stringify(look);
+    if (key === this.lookKey) return;
+    const first = this.lookKey === '';
+    this.lookKey = key;
+    if (!first || key !== JSON.stringify(APPEARANCES.heir)) this.rebuildRig(look);
   }
 
   get isGrounded(): boolean {
@@ -222,6 +290,9 @@ export class Player extends Character {
       case 'critical':
         this.updateCritical(dt);
         break;
+      case 'buffArt':
+        this.updateBuffArt();
+        break;
       case 'rest':
         this.updateRest();
         break;
@@ -252,6 +323,7 @@ export class Player extends Character {
     if (inp.pressed('UseItem')) this.buffer.push('item', now);
     if (inp.pressed('CastSpell')) this.buffer.push('spell', now);
     if (inp.pressed('Parry')) this.buffer.push('parry', now);
+    if (inp.pressed('WeaponArt')) this.buffer.push('art', now);
     if (inp.pressed('ToggleWalk')) this.walkToggle = !this.walkToggle;
     if (inp.pressed('CycleItem')) {
       this.inventory.cycleItem();
@@ -315,6 +387,9 @@ export class Player extends Character {
       case 'parry':
         this.buffer.consume('parry', now);
         return this.startParry();
+      case 'art':
+        this.buffer.consume('art', now);
+        return this.startWeaponArt();
     }
     return false;
   }
@@ -521,7 +596,9 @@ export class Player extends Character {
   // ===================================================================================
   private startDodge(kind: 'roll' | 'backstep'): boolean {
     if (this.stamina <= 0) return false;
-    this.spendStamina(kind === 'roll' ? 16 : 10, 0.7);
+    if (this.loadClass === 'overloaded') kind = 'backstep';
+    const cost = kind === 'roll' ? { light: 13, medium: 16, heavy: 21, overloaded: 21 }[this.loadClass] : 10;
+    this.spendStamina(cost, 0.7);
     this.enter('dodge');
     this.dodgeKind = kind;
     const mag = this.computeMoveDir();
@@ -541,17 +618,19 @@ export class Player extends Character {
     void _dt;
     const t = this.stateTime;
     const roll = this.dodgeKind === 'roll';
-    const T = roll ? 0.52 : 0.32;
-    const D = roll ? 3.5 : 1.9;
+    // Equip load shapes the roll: light = long and quick, heavy = short "fat" roll.
+    const lc = this.loadClass;
+    const T = roll ? (lc === 'light' ? 0.48 : lc === 'heavy' ? 0.62 : 0.52) : 0.32;
+    const D = roll ? (lc === 'light' ? 4.1 : lc === 'heavy' ? 2.4 : 3.5) : lc === 'overloaded' ? 1.0 : 1.9;
     const iStart = roll ? 0.04 : 0.02;
-    const iEnd = roll ? 0.4 : 0.22;
+    const iEnd = roll ? (lc === 'light' ? 0.44 : lc === 'heavy' ? 0.3 : 0.4) : 0.22;
     this.invulnerable = t >= iStart && t <= iEnd;
     if (t < T) {
       const v = ((2 * D) / T) * (1 - t / T) + 0.6;
       this.motor.desiredVelocity.set(Math.sin(this.dodgeYaw) * v, 0, Math.cos(this.dodgeYaw) * v);
     }
-    const total = roll ? 0.62 : 0.45;
-    const cancelAt = roll ? 0.5 : 0.34;
+    const total = roll ? (lc === 'heavy' ? 0.78 : lc === 'light' ? 0.58 : 0.62) : 0.45;
+    const cancelAt = roll ? (lc === 'heavy' ? 0.66 : 0.5) : 0.34;
     if (t >= cancelAt) {
       const now = this.ctx.time.time;
       const intent = this.buffer.peek(now);
@@ -716,6 +795,42 @@ export class Player extends Character {
   }
 
   // ===================================================================================
+  // Weapon arts
+  // ===================================================================================
+  private pendingArtBuff: import('@/rpg/Modifiers').Buff | null = null;
+
+  /** Use the equipped weapon's skill (costs mana). */
+  startWeaponArt(): boolean {
+    const art = this.weapon.art;
+    if (!art) return false;
+    if (this.mana < art.mana) {
+      this.ctx.events.emit('notify', { text: 'Not enough mana', kind: 'info' });
+      return false;
+    }
+    if (this.stamina <= 0) return false;
+    this.mana -= art.mana;
+    this.ctx.events.emit('notify', { text: art.name, kind: 'info' });
+    if (art.kind === 'attack') return this.startAttackById(art.attack);
+    this.enter('buffArt');
+    this.pendingArtBuff = art.buff;
+    this.animator.play(this.clips.castSkyward, 0.1, 1.3);
+    return true;
+  }
+
+  private updateBuffArt(): void {
+    if (this.pendingArtBuff && this.stateTime >= 0.4) {
+      const b = this.pendingArtBuff;
+      this.pendingArtBuff = null;
+      this.addBuff(b);
+      this.ctx.vfx.soulRelease(this.centerPoint(this.tmp), b.color, 60);
+      this.ctx.vfx.ring(this.position, 1.8, b.color, 0.5);
+      this.ctx.camera.shake.add(0.15);
+      this.emitNoise(10);
+    }
+    if (this.stateTime >= 0.85) this.enter('locomotion');
+  }
+
+  // ===================================================================================
   // Critical attacks (riposte / backstab)
   // ===================================================================================
   private tryCritical(): boolean {
@@ -851,6 +966,10 @@ export class Player extends Character {
     const spell = this.inventory.spell;
     if (!spell) return false;
     if ((this.spellCooldowns.get(spell.id) ?? 0) > 0) return false;
+    if (spell.hpCost && this.hp <= this.maxHp * spell.hpCost + 1) {
+      this.ctx.events.emit('notify', { text: 'Too weak to pay the blood price', kind: 'info' });
+      return false;
+    }
     if (this.mana < spell.manaCost) {
       this.ctx.events.emit('notify', { text: 'Not enough mana', kind: 'info' });
       return false;
@@ -892,6 +1011,7 @@ export class Player extends Character {
       if (this.stateTime >= s.castTime) {
         this.spellReleased = true;
         this.mana -= s.manaCost;
+        if (s.hpCost) this.hp = Math.max(1, this.hp - this.maxHp * s.hpCost);
         this.spendStamina(s.staminaCost);
         this.spellCooldowns.set(s.id, s.cooldown);
         this.releaseSpell(s, hand);
@@ -903,31 +1023,12 @@ export class Player extends Character {
   private releaseSpell(s: SpellData, hand: Vector3): void {
     const e = s.effect;
     const fwd = new Vector3(Math.sin(this.facing), 0, Math.cos(this.facing));
-    if (e.kind === 'projectile' && s.damage) {
-      const origin = hand.clone().addScaledVector(fwd, 0.3);
-      const dir = fwd.clone();
-      if (this.lockTarget) dir.copy(this.lockTarget.centerPoint(new Vector3()).sub(origin)).normalize();
-      this.ctx.projectiles.spawn(
-        this,
-        origin,
-        dir,
-        e,
-        {
-          source: s.damage,
-          motionValue: s.damage.motionValue,
-          poiseDamage: s.damage.poiseDamage,
-          reaction: 'flinch',
-          parryable: false,
-          guardDamage: 25,
-          knockback: 0.6,
-          hitStop: 0.05,
-          shake: 0.18,
-        },
-        this.lockTarget,
-      );
-      this.ctx.vfx.flash(origin, e.color, 1.4, 0.15);
-      this.emitNoise(7);
-    } else if (e.kind === 'blink') {
+    if (e.kind !== 'blink') {
+      castSpell(this.ctx, this, s, hand, this.facing, this.lockTarget);
+      this.emitNoise(e.kind === 'buff' || e.kind === 'pact' ? 3 : 8);
+      return;
+    }
+    {
       const mag = this.computeMoveDir();
       const dir = mag > 0.1 ? this.moveDir.clone() : fwd.clone().negate();
       const from = this.position.clone();
@@ -954,39 +1055,8 @@ export class Player extends Character {
       this.ctx.vfx.soulRelease(this.centerPoint(new Vector3()), e.color, 50);
       this.ctx.vfx.flash(this.centerPoint(new Vector3()), e.color, 2.5, 0.2);
       this.ctx.camera.shake.add(0.1);
-    } else if (e.kind === 'nova' && s.damage) {
-      const center = this.position.clone().addScaledVector(fwd, e.forward);
-      center.y += 0.1;
-      this.ctx.vfx.sparks.burst(center.clone().setY(center.y + 0.6), { count: 140, color: e.core, color2: '#ff2a6a', speed: 5, life: 0.8, size: 0.32, gravity: -3, drag: 2.2, spread: 2, radius: 0.8 });
-      this.ctx.vfx.smoke.burst(center.clone().setY(center.y + 0.4), { count: 40, color: e.color, color2: '#000000', speed: 2.5, life: 1.2, size: 1.0, gravity: -1.5, drag: 2, spread: 2, radius: 0.8 });
-      this.ctx.vfx.ring(center, e.radius * 1.3, e.core, 0.5);
-      this.ctx.vfx.light(center.clone().setY(center.y + 1), e.core, 14, 0.6);
-      this.ctx.camera.shake.add(0.25);
-      this.emitNoise(9);
-      for (const c of this.ctx.combat.characters) {
-        if (c.faction === this.faction || c.dead) continue;
-        if (Math.hypot(c.position.x - center.x, c.position.z - center.z) > e.radius + c.hurtRadius) continue;
-        if (Math.abs(c.position.y - this.position.y) > 2) continue;
-        const dir = new Vector3(c.position.x - this.position.x, 0, c.position.z - this.position.z).normalize();
-        this.ctx.combat.resolve(
-          this,
-          c,
-          {
-            source: s.damage,
-            motionValue: s.damage.motionValue,
-            poiseDamage: s.damage.poiseDamage,
-            reaction: 'stagger',
-            parryable: false,
-            guardDamage: 50,
-            knockback: 1.2,
-            hitStop: 0.08,
-            shake: 0.3,
-          },
-          c.centerPoint(new Vector3()),
-          dir,
-        );
-      }
     }
+    void fwd;
   }
 
   private blinkInvuln = 0;
@@ -1082,6 +1152,9 @@ export class Player extends Character {
   /** Respawn at the last altar. */
   respawn(): void {
     this.dead = false;
+    this.buffs.length = 0;
+    this.frozen = 0;
+    this.pendingArtBuff = null;
     this.applyProgress(true);
     this.inventory.refill();
     this.motor.teleport(this.respawnPoint.x, this.respawnPoint.y, this.respawnPoint.z);

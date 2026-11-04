@@ -109,7 +109,8 @@ describe('data integrity', () => {
 
   it('spells have costs and effects', () => {
     for (const s of Object.values(SPELLS)) {
-      expect(s.manaCost).toBeGreaterThan(0);
+      // Blood magic pays with health instead of mana.
+      expect(s.manaCost + (s.hpCost ?? 0), s.id).toBeGreaterThan(0);
       expect(s.castTime).toBeGreaterThan(0);
     }
   });

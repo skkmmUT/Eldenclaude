@@ -41,7 +41,15 @@ export interface WeaponData extends DamageSource {
   critical: number;
   moveset: WeaponMoveset;
   visual: WeaponVisual;
+  /** Weapon skill used with the Weapon Art button (costs mana). */
+  art?: WeaponArt;
+  /** Staffs and grimoires amplify spells. */
+  catalyst?: { spellMul: number };
 }
+
+export type WeaponArt =
+  | { name: string; description: string; mana: number; kind: 'attack'; attack: string }
+  | { name: string; description: string; mana: number; kind: 'buff'; buff: import('@/rpg/Modifiers').Buff };
 
 export type ConsumableEffect =
   | { kind: 'heal'; fraction: number }
@@ -58,4 +66,42 @@ export interface ConsumableData {
   /** Refilled at altars (flask-type) or consumed permanently. */
   refillAtAltar: boolean;
   maxStack: number;
+}
+
+export type ArmorSlot = 'head' | 'chest' | 'hands' | 'legs';
+
+/** Armour piece: absorption, poise, weight, and how it changes the wearer's look. */
+export interface ArmorData {
+  id: string;
+  name: string;
+  slot: ArmorSlot;
+  description: string;
+  lore: string;
+  weight: number;
+  poise: number;
+  absorption: Absorptions;
+  statusResist?: { poison?: number; bleed?: number };
+  /** Appearance overrides applied to the procedural model. */
+  look?: {
+    helmet?: 'crowned' | 'sallet' | 'horned' | 'hood';
+    armor?: string;
+    armorDark?: string;
+    trim?: string;
+    cloth?: string;
+    clothInner?: string;
+    pauldrons?: 'ornate' | 'spiked' | 'rags';
+  };
+}
+
+export type AccessorySlot = 'ring' | 'amulet';
+
+export interface AccessoryData {
+  id: string;
+  name: string;
+  slot: AccessorySlot;
+  description: string;
+  lore: string;
+  weight: number;
+  mods: Partial<import('@/rpg/Modifiers').Modifiers>;
+  glyph: string;
 }

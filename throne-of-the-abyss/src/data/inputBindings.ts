@@ -19,6 +19,7 @@ export const DEFAULT_BINDINGS: BindingMap = {
   CastSpell: ['KeyC', 'Pad3'],
   CycleSpell: ['KeyV', 'Pad12'],
   SwitchWeapon: ['KeyX', 'Pad15'],
+  WeaponArt: ['KeyG', 'Pad14'],
   ToggleWalk: ['KeyZ', 'Pad10'],
   Pause: ['Escape', 'KeyP', 'Pad9'],
 };
@@ -40,6 +41,7 @@ export const CONTROL_HINTS: Array<[string, string]> = [
   ['R / T', 'Use item / cycle item'],
   ['C / V', 'Cast spell / cycle spell'],
   ['X', 'Switch weapon'],
+  ['G', 'Weapon art (costs mana)'],
   ['Z', 'Toggle walk'],
   ['Esc / P', 'Pause menu'],
 ];

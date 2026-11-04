@@ -3,12 +3,14 @@ import type { Player } from '@/characters/player/Player';
 import { radialSprite } from '@/render/TextureFactory';
 import type { VFXManager } from '@/vfx/VFXManager';
 import type { Interactable } from './Interactable';
+import type { ItemGrant } from '@/items/Grants';
 
 export type PickupContent =
   | { kind: 'lore'; loreId: string }
   | { kind: 'consumable'; id: string; amount: number }
   | { kind: 'flaskUpgrade'; id: string }
-  | { kind: 'echoes'; amount: number };
+  | { kind: 'echoes'; amount: number }
+  | { kind: 'item'; grant: ItemGrant };
 
 /** Glowing item on the ground. */
 export class Pickup implements Interactable {

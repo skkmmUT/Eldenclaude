@@ -21,6 +21,9 @@ import { buildOverworld, type OverworldInstance } from '../regions/Overworld';
 import { Fire } from '../Fire';
 import { SigilAltar } from '../SigilAltar';
 import { Chest } from '../Chest';
+import type { ItemGrant } from '@/items/Grants';
+
+const GRANT_COLORS: Record<ItemGrant['type'], string> = { weapon: '#ffe0a8', armor: '#d8d0c0', accessory: '#ffd27a', spell: '#b48aff' };
 import { Pickup } from '../Pickup';
 import { Breakable } from '../Breakable';
 import {
@@ -293,9 +296,36 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
   scene.add(altar2.group);
   world.addCylinder(10.5, 41, 1.2, landingY, landingY + 2.2, { blocksSight: false });
 
-  const chest = new Chest('chest_cloister', new Vector3(-34, 0, 19.5), Math.PI / 2, { weapon: 'gravecleaver' });
-  scene.add(chest.group);
-  world.addBox(-34.4, 0, 18.9, -33.6, 0.85, 20.1, { blocksSight: false });
+  const chests: Chest[] = [];
+  const placeChest = (id: string, pos: Vector3, yaw: number, contents: ItemGrant[]) => {
+    const c = new Chest(id, pos, yaw, contents);
+    scene.add(c.group);
+    // Footprint of the chest body (1.2 × 0.75), rotated by yaw.
+    const ax = Math.abs(Math.cos(yaw)) * 0.6 + Math.abs(Math.sin(yaw)) * 0.375;
+    const az = Math.abs(Math.sin(yaw)) * 0.6 + Math.abs(Math.cos(yaw)) * 0.375;
+    world.addBox(pos.x - ax, pos.y, pos.z - az, pos.x + ax, pos.y + 0.85, pos.z + az, { blocksSight: false });
+    chests.push(c);
+    return c;
+  };
+  placeChest('chest_cloister', new Vector3(-34, 0, 19.5), Math.PI / 2, [
+    { type: 'weapon', id: 'gravecleaver' },
+    { type: 'accessory', id: 'swift_ash_ring' },
+  ]);
+  placeChest('chest_terrace', new Vector3(37, terraceY, 12), -Math.PI / 2, [
+    { type: 'weapon', id: 'athenaeum_grimoire' },
+    { type: 'accessory', id: 'sorcerer_band' },
+    { type: 'spell', id: 'umbral_shards' },
+    { type: 'spell', id: 'abyssal_meteor' },
+    { type: 'spell', id: 'rift_collapse' },
+  ]);
+  placeChest('chest_hidden_nook', new Vector3(29.5, 0, 43.5), Math.PI / 2, [
+    { type: 'weapon', id: 'crimson_fang' },
+    { type: 'accessory', id: 'bloodbound_ring' },
+    { type: 'spell', id: 'blood_spear' },
+    { type: 'spell', id: 'crimson_pact' },
+  ]);
+  const item = (id: string, pos: Vector3, grant: ItemGrant) =>
+    new Pickup(id, pos, { kind: 'item', grant }, ctx.vfx, GRANT_COLORS[grant.type]);
 
   const pickups = [
     new Pickup('lore_proclamation', new Vector3(0, 0, -3.6), { kind: 'lore', loreId: 'torn_proclamation' }, ctx.vfx),
@@ -304,6 +334,9 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
     new Pickup('ichor_shard_terrace', new Vector3(37.5, terraceY, 23.5), { kind: 'flaskUpgrade', id: 'crimson_ichor' }, ctx.vfx, '#ff5a6a'),
     new Pickup('echoes_grave', new Vector3(31, 0, -25), { kind: 'echoes', amount: 400 }, ctx.vfx, '#ffd27a'),
     new Pickup('azure_cloister', new Vector3(-36, 0, -20), { kind: 'consumable', id: 'azure_ichor', amount: 1 }, ctx.vfx, '#6a8aff'),
+    item('item_wraithfang', new Vector3(29, 0, -25), { type: 'weapon', id: 'wraithfang' }),
+    item('item_pilgrim_hood', new Vector3(-33.5, 0, -16), { type: 'armor', id: 'pilgrim_hood' }),
+    item('item_soul_drain', new Vector3(-9, 0, 30), { type: 'spell', id: 'soul_drain' }),
   ];
   for (const p of pickups) scene.add(p.group);
 
@@ -362,6 +395,12 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
     new Pickup('lore_elder_bough', A.treeShrine.clone().add(new Vector3(6, 0, 4)), { kind: 'lore', loreId: 'elder_bough' }, ctx.vfx),
     new Pickup('ichor_shard_keep', A.keepAltar.clone().add(new Vector3(-9, -0.4, 7)), { kind: 'flaskUpgrade', id: 'crimson_ichor' }, ctx.vfx, '#ff5a6a'),
     new Pickup('echoes_bridge', A.bridgeNorth.clone().add(new Vector3(5, 0, 3)), { kind: 'echoes', amount: 300 }, ctx.vfx, '#ffd27a'),
+    item('item_ember_choir', A.bridgeNorth.clone().add(new Vector3(-4, 0, 4)), { type: 'accessory', id: 'ember_choir_ring' }),
+    item('item_frozen_tomb', A.keepSpawnA.clone().add(new Vector3(2, 0, 2)), { type: 'spell', id: 'frozen_tomb' }),
+    item('item_seal_amulet', A.keepSpawnB.clone().add(new Vector3(-2, 0, 2)), { type: 'accessory', id: 'seal_amulet' }),
+    item('item_rime_lance', A.keepSpawnA.clone().add(new Vector3(-2, 0, -2.5)), { type: 'spell', id: 'rime_lance' }),
+    item('item_ward_mantle', A.treeSpawn.clone().add(new Vector3(3, 0, -3)), { type: 'armor', id: 'ward_mantle' }),
+    item('item_death_crown', A.treeShrine.clone().add(new Vector3(-4, 0, 6)), { type: 'spell', id: 'death_crown' }),
   ];
   for (const p of worldPickups) {
     p.position.y = overworld.terrain.height(p.position.x, p.position.z) > p.position.y ? overworld.terrain.height(p.position.x, p.position.z) : p.position.y;
@@ -369,6 +408,26 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
     scene.add(p.group);
     pickups.push(p);
   }
+  const onTerrain = (v: Vector3) => v.setY(Math.max(v.y, overworld.terrain.height(v.x, v.z)));
+  placeChest('chest_bridge', onTerrain(A.bridgeGuard.clone().add(new Vector3(4, 0, -3))), 0.4, [
+    { type: 'weapon', id: 'pilgrims_pike' },
+    { type: 'armor', id: 'levy_sallet' },
+    { type: 'spell', id: 'storm_spear' },
+  ]);
+  placeChest('chest_keep_armory', onTerrain(A.keepAltar.clone().add(new Vector3(6, 0, -6))), Math.PI * 0.75, [
+    { type: 'weapon', id: 'keepwarden_halberd' },
+    { type: 'weapon', id: 'bearded_axe' },
+    { type: 'weapon', id: 'gravel_maul' },
+    { type: 'spell', id: 'pyre_orb' },
+    { type: 'spell', id: 'thunder_call' },
+  ]);
+  placeChest('chest_elder_roots', onTerrain(A.treeShrine.clone().add(new Vector3(3, 0, -5))), Math.PI / 2, [
+    { type: 'weapon', id: 'elder_bough_staff' },
+    { type: 'accessory', id: 'verdant_amulet' },
+    { type: 'spell', id: 'radiant_mend' },
+    { type: 'spell', id: 'sanctified_blade' },
+    { type: 'spell', id: 'eternal_guardian' },
+  ]);
   applyLightBudget(ctx.profile.maxPointLights);
   const atmosphere = new Atmosphere(scene, ctx.profile.particleDensity);
   const altarFires = new Set([altar.fire, altar2.fire, altar3.fire, altar4.fire]);
@@ -415,7 +474,7 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
     playerStart: new Vector3(0, 0, -37),
     playerYaw: 0,
     altars: [altar, altar2, altar3, altar4],
-    chests: [chest],
+    chests,
     pickups,
     breakables,
     fires,
@@ -427,7 +486,7 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
     update(dt: number, cameraPos: Vector3, env: { night: number; wind: number }) {
       atmosphere.update(dt, cameraPos, env.night);
       for (const a of [altar, altar2, altar3, altar4]) a.update(dt);
-      chest.update(dt);
+      for (const c of chests) c.update(dt);
       for (const p of pickups) p.update(dt);
       for (const f of fires) f.night = env.night;
       for (const f of fires) if (!altarFires.has(f)) f.update(dt);

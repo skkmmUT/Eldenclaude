@@ -9,6 +9,8 @@ import type { AttackData, HitReaction } from '@/combat/AttackData';
 import type { DamageSource } from '@/combat/DamageCalculator';
 import type { Absorptions, DirectDamageType, StatusResistances } from '@/combat/DamageTypes';
 import type { Attributes } from '@/rpg/Attributes';
+import { addModifiers, emptyModifiers, type Buff, type Modifiers } from '@/rpg/Modifiers';
+import { DIRECT_DAMAGE_TYPES } from '@/combat/DamageTypes';
 import type { WeaponData } from '@/items/ItemTypes';
 import { buildWeapon, type WeaponModel } from '@/render/WeaponModels';
 import { SlashTrail } from '@/vfx/SlashTrail';
@@ -58,7 +60,7 @@ export abstract class Character {
   readonly name: string;
   readonly faction: Faction;
   readonly model = new Group();
-  readonly rig: HumanoidRig;
+  rig: HumanoidRig;
   readonly animator = new Animator();
   readonly clips: ClipSet;
   readonly motor: CharacterMotor;
@@ -112,6 +114,59 @@ export abstract class Character {
   protected lastFacing = 0;
   /** Seconds since this character was last hit. */
   sinceHit = 99;
+  /** Modifiers from equipment (set by the owner); buffs are layered on top. */
+  baseMods: Modifiers = emptyModifiers();
+  readonly buffs: Buff[] = [];
+  private modsCache: Modifiers | null = null;
+  /** Timer of an active freeze (frost spells); characters cannot act while frozen. */
+  frozen = 0;
+
+  /** Equipment + active buffs combined. */
+  get mods(): Modifiers {
+    if (!this.modsCache) {
+      const m = addModifiers(emptyModifiers(), this.baseMods);
+      for (const b of this.buffs) addModifiers(m, b.mods);
+      this.modsCache = m;
+    }
+    return this.modsCache;
+  }
+
+  /** Drop the cached modifier sum without triggering `onModsChanged`. */
+  protected resetModsCache(): void {
+    this.modsCache = null;
+  }
+
+  /** Mark modifiers stale (call after changing baseMods or buffs). */
+  invalidateMods(): void {
+    this.modsCache = null;
+    this.onModsChanged();
+  }
+
+  /** Hook: derived stats that depend on modifiers (players recompute here). */
+  protected onModsChanged(): void {}
+
+  addBuff(b: Buff): void {
+    const i = this.buffs.findIndex((x) => x.id === b.id);
+    const copy: Buff = { ...b, time: 0 };
+    if (i >= 0) this.buffs[i] = copy;
+    else this.buffs.push(copy);
+    this.invalidateMods();
+  }
+
+  /** Absorption including temporary wards. */
+  get effectiveAbsorption(): Absorptions {
+    const extra = this.mods.absorption;
+    const out: Absorptions = {};
+    for (const t of DIRECT_DAMAGE_TYPES) out[t] = 1 - (1 - (this.absorption[t] ?? 0)) * (1 - (extra[t] ?? 0));
+    return out;
+  }
+
+  /** Freeze in place (frost magic). Bosses shrug it off faster. */
+  freeze(seconds: number): void {
+    if (this.dead) return;
+    this.frozen = Math.max(this.frozen, this.isBoss ? seconds * 0.35 : seconds);
+  }
+
   /** External push velocity (knockback, shoves) — decays exponentially. */
   readonly push = new Vector3();
 
@@ -142,20 +197,40 @@ export abstract class Character {
     this.trail = new SlashTrail();
     ctx.scene.add(this.trail.mesh);
     ctx.scene.add(this.model);
-    if (cfg.appearance.cape) {
-      const p = cfg.appearance.palette;
-      const tex = banneredClothTexture(p.cloth, p.trim, p.clothInner);
-      this.cape = new CapeCloth(this.rig.capeAnchor, 0.5, 1.25, tex, s);
-      this.cape.addCollider(this.rig.joint('chest'), new Vector3(0, 0.12, 0.02), 0.2);
-      this.cape.addCollider(this.rig.joint('hips'), new Vector3(0, 0, 0.0), 0.2);
-      for (const side of ['L', 'R'] as const) {
-        this.cape.addCollider(this.rig.joint(`thigh${side}`), new Vector3(0, -0.22, 0), 0.12);
-        this.cape.addCollider(this.rig.joint(`shin${side}`), new Vector3(0, -0.2, 0), 0.1);
-      }
-      ctx.scene.add(this.cape.mesh);
-    }
+    this.buildCape(cfg.appearance);
     this.animator.onEvent = (name) => this.onAnimEvent(name);
     this.setOutlines(ctx.profile.outlines);
+  }
+
+  private buildCape(look: HumanoidAppearance): void {
+    if (this.cape) {
+      this.ctx.scene.remove(this.cape.mesh);
+      this.cape = null;
+    }
+    if (!look.cape) return;
+    const p = look.palette;
+    const tex = banneredClothTexture(p.cloth, p.trim, p.clothInner);
+    const cape = new CapeCloth(this.rig.capeAnchor, 0.5, 1.25, tex, this.rig.scale);
+    cape.addCollider(this.rig.joint('chest'), new Vector3(0, 0.12, 0.02), 0.2);
+    cape.addCollider(this.rig.joint('hips'), new Vector3(0, 0, 0.0), 0.2);
+    for (const side of ['L', 'R'] as const) {
+      cape.addCollider(this.rig.joint(`thigh${side}`), new Vector3(0, -0.22, 0), 0.12);
+      cape.addCollider(this.rig.joint(`shin${side}`), new Vector3(0, -0.2, 0), 0.1);
+    }
+    this.ctx.scene.add(cape.mesh);
+    this.cape = cape;
+  }
+
+  /** Replace the body model (armour changes). Pose, weapon and cape carry over. */
+  rebuildRig(look: HumanoidAppearance): void {
+    const old = this.rig;
+    this.rig = new HumanoidRig(look);
+    this.model.remove(old.root);
+    this.model.add(this.rig.root);
+    old.weaponSocketR.remove(this.weaponModel.group);
+    this.rig.weaponSocketR.add(this.weaponModel.group);
+    this.buildCape(look);
+    this.setOutlines(this.ctx.profile.outlines);
   }
 
   setOutlines(v: boolean): void {
@@ -204,7 +279,12 @@ export abstract class Character {
 
   /** Damage source used for melee attacks (weapon + extra). */
   damageSource(): DamageSource {
-    return this.weapon;
+    const extra = this.mods.weaponExtra;
+    const keys = Object.keys(extra);
+    if (!keys.length) return this.weapon;
+    const base = { ...this.weapon.base };
+    for (const k of keys) base[k as keyof typeof base] = (base[k as keyof typeof base] ?? 0) + (extra[k as keyof typeof extra] ?? 0);
+    return { ...this.weapon, base };
   }
 
   // ---------------------------------------------------------------------------------
@@ -298,6 +378,22 @@ export abstract class Character {
   update(dt: number): void {
     this.sinceHit += dt;
     if (!this.dead) this.updateVitals(dt);
+    if (this.frozen > 0 && !this.dead) {
+      // Encased in frost: no actions, no animation; ice crystals drift off.
+      this.motor.desiredVelocity.set(0, 0, 0);
+      this.attack = null;
+      this.trail.emitting = false;
+      this.guarding = false;
+      if (Math.random() < dt * 14) {
+        const c = this.centerPoint(new Vector3());
+        this.ctx.vfx.sparks.emit(c.add(new Vector3((Math.random() - 0.5) * 0.6, (Math.random() - 0.3) * 1.2, (Math.random() - 0.5) * 0.6)), new Vector3(0, 0.4, 0), '#bfe8ff', 0.8, 0.1, -0.2, 1);
+      }
+      this.motor.update(dt);
+      this.syncTransform(dt);
+      this.updateAnimation(0);
+      this.updateWeaponSegment(dt);
+      return;
+    }
     this.updateState(dt);
     if (this.push.lengthSq() > 1e-4) {
       this.motor.desiredVelocity.x += this.push.x;
@@ -311,10 +407,26 @@ export abstract class Character {
   }
 
   private updateVitals(dt: number): void {
+    // Buffs & regeneration
+    if (this.buffs.length) {
+      let expired = false;
+      for (const b of this.buffs) {
+        b.time += dt;
+        if (b.time >= b.duration) expired = true;
+      }
+      if (expired) {
+        for (let i = this.buffs.length - 1; i >= 0; i--) if (this.buffs[i].time >= this.buffs[i].duration) this.buffs.splice(i, 1);
+        this.invalidateMods();
+      }
+    }
+    const m = this.mods;
+    if (m.hpRegen > 0) this.hp = Math.min(this.maxHp, this.hp + m.hpRegen * dt);
+    if (m.manaRegen > 0) this.mana = Math.min(this.maxMana, this.mana + m.manaRegen * dt);
+    if (this.frozen > 0) this.frozen = Math.max(0, this.frozen - dt);
     // Stamina
     if (this.staminaRegenDelay > 0) this.staminaRegenDelay -= dt;
     else {
-      const rate = this.staminaRegenRate * (this.guarding ? 0.35 : 1);
+      const rate = this.staminaRegenRate * this.mods.staminaRegenMul * (this.guarding ? 0.35 : 1);
       this.stamina = Math.min(this.maxStamina, this.stamina + rate * dt);
     }
     // Poise regenerates after a short delay without being hit.

@@ -18,7 +18,6 @@ import { Player } from '@/characters/player/Player';
 import { Enemy } from '@/characters/enemies/Enemy';
 import { EnemyDirector } from '@/characters/enemies/EnemyDirector';
 import { ENEMIES } from '@/data/enemies';
-import { WEAPONS } from '@/data/weapons';
 import { CONSUMABLES } from '@/data/items';
 import { LORE, type LoreEntry } from '@/data/lore';
 import { buildAshenCourtyard, type LevelInstance } from '@/world/levels/AshenCourtyard';
@@ -26,6 +25,8 @@ import { EnvironmentSystem } from '@/world/environment/EnvironmentSystem';
 import type { WeatherKind } from '@/world/environment/Weather';
 import type { SigilAltar } from '@/world/SigilAltar';
 import { Pickup } from '@/world/Pickup';
+import type { ArmorSlot } from '@/items/ItemTypes';
+import { applyGrant, type ItemGrant } from '@/items/Grants';
 import type { Interactable } from '@/world/Interactable';
 import { HUD } from '@/ui/HUD';
 import { Menus, type MapData, type MenuHost } from '@/ui/Menus';
@@ -196,11 +197,7 @@ export class Game implements MenuHost {
     }
     for (const c of this.level.chests) {
       c.onOpen = (chest) => {
-        if (chest.contents.weapon) {
-          this.player.inventory.addWeapon(chest.contents.weapon);
-          const w = WEAPONS[chest.contents.weapon];
-          this.hud.toast(w.name, 'Weapon acquired — equip it from the menu or press X');
-        }
+        this.grantAll(chest.contents);
         this.vfx.soulRelease(chest.position.clone().setY(chest.position.y + 0.7), '#ffd27a', 40);
         this.autosave();
       };
@@ -230,8 +227,20 @@ export class Game implements MenuHost {
     } else if (c.kind === 'echoes') {
       this.player.progress.echoes += c.amount;
       this.hud.toast('Echoes of the fallen', `+${c.amount}`);
+    } else if (c.kind === 'item') {
+      this.grantAll([c.grant]);
     }
     this.autosave();
+  }
+
+  /** Hand items to the player, one toast each (staggered so they stay readable). */
+  private grantAll(list: ItemGrant[], delay = 0): void {
+    for (const g of list) {
+      const t = applyGrant(this.player.inventory, g);
+      if (!t) continue;
+      window.setTimeout(() => this.hud.toast(t.title, t.sub), delay);
+      delay += 900;
+    }
   }
 
   private openReader(entry: LoreEntry): void {
@@ -523,6 +532,14 @@ export class Game implements MenuHost {
     this.player.equipWeapon(inv.weapon);
   }
 
+  equipArmor(slot: ArmorSlot, id: string | null): void {
+    if (this.player.inventory.equipArmor(slot, id)) this.player.applyProgress(false);
+  }
+
+  equipAccessory(target: 0 | 1 | 'amulet', id: string | null): void {
+    if (this.player.inventory.equipAccessory(target, id)) this.player.applyProgress(false);
+  }
+
   dropWeapon(index: number): void {
     const inv = this.player.inventory;
     if (index === inv.rightHand || inv.weapons.length <= 1) return;
@@ -572,7 +589,9 @@ export class Game implements MenuHost {
   }
 
   private onEnemyDeath(e: Enemy): void {
-    const amount = e.data.echoes;
+    const m = this.player.mods;
+    const amount = Math.round(e.data.echoes * m.echoGainMul);
+    if (m.healOnKill > 0 && !this.player.dead) this.player.heal(this.player.maxHp * m.healOnKill);
     this.player.progress.echoes += amount;
     this.events.emit('echoes', { amount, total: this.player.progress.echoes });
     this.vfx.soulRelease(e.centerPoint(new Vector3()), e.isBoss ? '#ff4a6a' : '#ffb070', e.isBoss ? 160 : 50);
@@ -586,6 +605,7 @@ export class Game implements MenuHost {
       this.activeBoss = null;
       this.level.gate.setOpen(true);
       window.setTimeout(() => this.hud.toast('The seal upon the Gate of Eternity shatters'), 4200);
+      if (e.data.drops?.length) this.grantAll(e.data.drops, 5600);
       this.autosave();
     }
   }

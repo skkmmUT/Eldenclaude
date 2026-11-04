@@ -16,6 +16,7 @@ export const InputAction = {
   CastSpell: 'CastSpell',
   CycleSpell: 'CycleSpell',
   SwitchWeapon: 'SwitchWeapon',
+  WeaponArt: 'WeaponArt',
   ToggleWalk: 'ToggleWalk',
   Pause: 'Pause',
   MoveForward: 'MoveForward',

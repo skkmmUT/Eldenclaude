@@ -2,7 +2,7 @@
  * Short-lived queue of combat intents. Pressing attack/dodge slightly before the current
  * action ends still executes — essential for responsive souls-like combat.
  */
-export type BufferedIntent = 'light' | 'heavy' | 'dodge' | 'backstep' | 'jump' | 'item' | 'spell' | 'parry';
+export type BufferedIntent = 'light' | 'heavy' | 'dodge' | 'backstep' | 'jump' | 'item' | 'spell' | 'parry' | 'art';
 
 interface Entry {
   intent: BufferedIntent;

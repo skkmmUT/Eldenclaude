@@ -5,6 +5,11 @@ import { DIRECT_DAMAGE_TYPES, DAMAGE_COLORS, totalDamage } from '@/combat/Damage
 import { WEAPONS } from '@/data/weapons';
 import { CONSUMABLES } from '@/data/items';
 import { SPELLS } from '@/data/spells';
+import { ACCESSORIES, ARMOR } from '@/data/armor';
+import { ARMOR_SLOTS } from '@/items/Inventory';
+import type { ArmorSlot } from '@/items/ItemTypes';
+import { SCHOOL_NAMES } from '@/magic/SpellTypes';
+import { spellPower } from '@/magic/SpellEffects';
 import { CONTROL_HINTS } from '@/data/inputBindings';
 import type { LoreEntry } from '@/data/lore';
 import type { GameSettings } from '@/core/Settings';
@@ -42,8 +47,15 @@ export interface MenuHost {
   journal(): { objectives: Array<{ text: string; done: boolean }>; lore: LoreEntry[] };
   equipWeapon(index: number): void;
   dropWeapon(index: number): void;
+  equipArmor(slot: ArmorSlot, id: string | null): void;
+  equipAccessory(target: 0 | 1 | 'amulet', id: string | null): void;
   useItemFromMenu(index: number): void;
 }
+
+type EquipSlot = 'weapon' | ArmorSlot | 'ring0' | 'ring1' | 'amulet';
+
+const SLOT_LABELS: Record<ArmorSlot, string> = { head: 'Head', chest: 'Chest', hands: 'Hands', legs: 'Legs' };
+const LOAD_LABELS = { light: 'light roll', medium: 'medium roll', heavy: 'heavy roll', overloaded: 'overloaded' } as const;
 
 type Tab = 'status' | 'equipment' | 'inventory' | 'spells' | 'map' | 'journal' | 'settings' | 'controls';
 
@@ -267,11 +279,54 @@ export class Menus {
     body.innerHTML = `<div class="cols"><div>${left.join('')}</div><div>${right.join('')}</div></div>`;
   }
 
+  private equipSlot: EquipSlot = 'weapon';
+  private selectedGear = 0;
+
   private renderEquipment(body: HTMLElement): void {
     const p = this.host.player;
     const inv = p.inventory;
+    const slots: Array<[EquipSlot, string, string]> = [
+      ['weapon', 'Right hand', inv.weapon.name],
+      ...ARMOR_SLOTS.map((s): [EquipSlot, string, string] => [s, SLOT_LABELS[s], inv.equipped[s] ? ARMOR[inv.equipped[s]!].name : '—']),
+      ['ring0', 'Ring I', inv.rings[0] ? ACCESSORIES[inv.rings[0]].name : '—'],
+      ['ring1', 'Ring II', inv.rings[1] ? ACCESSORIES[inv.rings[1]].name : '—'],
+      ['amulet', 'Amulet', inv.amulet ? ACCESSORIES[inv.amulet].name : '—'],
+    ];
+    const slotList = el('div.item-list');
+    for (const [id, label, name] of slots) {
+      const row = el('div', {
+        class: `item${id === this.equipSlot ? ' sel' : ''}`,
+        html: `<span class="n">${label}</span><span class="m">${escapeHtml(name)}</span>`,
+      });
+      row.addEventListener('click', () => {
+        this.equipSlot = id;
+        this.selectedGear = 0;
+        this.selectedWeapon = inv.rightHand;
+        this.renderPause();
+      });
+      slotList.append(row);
+    }
+    const loadColor = { light: '#8fe88f', medium: 'inherit', heavy: '#ffc070', overloaded: '#ff7a7a' }[p.loadClass];
+    const summary = el('div', {
+      style: 'margin-top:18px',
+      html:
+        this.kv('Equip load', `${p.equipLoad.toFixed(1)} / ${p.maxLoad}`, ` <span style="color:${loadColor};font:13px var(--serif)">(${LOAD_LABELS[p.loadClass]})</span>`) +
+        this.kv('Poise', String(Math.round(p.maxPoise))) +
+        this.kv('Physical absorption', `${Math.round((p.absorption.physical ?? 0) * 100)}%`),
+    });
+    const left = el('div', {}, [el('div.section-title', { text: 'Equipment' }), slotList, summary]);
+    const right = el('div');
+    if (this.equipSlot === 'weapon') this.renderWeaponChoice(right);
+    else if (this.equipSlot === 'head' || this.equipSlot === 'chest' || this.equipSlot === 'hands' || this.equipSlot === 'legs') this.renderArmorChoice(right, this.equipSlot);
+    else this.renderAccessoryChoice(right, this.equipSlot);
+    body.append(el('div.cols', {}, [left, right]));
+  }
+
+  private renderWeaponChoice(right: HTMLElement): void {
+    const p = this.host.player;
+    const inv = p.inventory;
     this.selectedWeapon = Math.min(this.selectedWeapon, inv.weapons.length - 1);
-    const list = el('div.item-list');
+    const list = el('div.item-list', { style: 'margin-bottom:16px;max-height:206px;overflow-y:auto' });
     inv.weapons.forEach((id, i) => {
       const w = WEAPONS[id];
       const row = el('div', {
@@ -303,7 +358,9 @@ export class Menus {
         this.kv('Requires', req) +
         this.kv('Guard (physical)', `${Math.round((w.guard.physical ?? 0) * 100)}%`) +
         this.kv('Weight', String(w.weight)) +
+        (w.catalyst ? this.kv('Spell power', `×${w.catalyst.spellMul.toFixed(2)}`) : '') +
         (w.buildup?.bleed ? this.kv('Bleed build-up', String(w.buildup.bleed)) : '') +
+        (w.art ? this.kv('Weapon art', `${escapeHtml(w.art.name)} · ${w.art.mana} MP`) + `<div class="desc" style="margin:4px 0 0">${escapeHtml(w.art.description)}</div>` : '') +
         `<div style="height:14px"></div><div class="lore">${escapeHtml(w.lore)}</div>`,
     });
     const actions = el('div', { style: 'display:flex;gap:10px;margin-top:16px' });
@@ -320,8 +377,110 @@ export class Menus {
       }, 'btn'));
     }
     detail.append(actions);
-    const left = el('div', {}, [el('div.section-title', { text: 'Right hand' }), list]);
-    body.append(el('div.cols', {}, [left, detail]));
+    right.append(list, detail);
+  }
+
+  private renderArmorChoice(right: HTMLElement, slot: ArmorSlot): void {
+    const inv = this.host.player.inventory;
+    const owned = inv.armor.filter((id) => ARMOR[id].slot === slot);
+    if (!owned.length) {
+      right.append(el('div.section-title', { text: SLOT_LABELS[slot] }), el('div.desc', { text: 'You own nothing for this slot yet.' }));
+      return;
+    }
+    this.selectedGear = Math.min(this.selectedGear, owned.length - 1);
+    const list = el('div.item-list', { style: 'margin-bottom:16px;max-height:206px;overflow-y:auto' });
+    owned.forEach((id, i) => {
+      const a = ARMOR[id];
+      const row = el('div', {
+        class: `item${i === this.selectedGear ? ' sel' : ''}${inv.equipped[slot] === id ? ' equipped' : ''}`,
+        html: `<span class="n">${escapeHtml(a.name)}</span><span class="m">${a.weight} wt</span>`,
+      });
+      row.addEventListener('click', () => {
+        this.selectedGear = i;
+        this.renderPause();
+      });
+      list.append(row);
+    });
+    const a = ARMOR[owned[this.selectedGear]];
+    const cur = inv.equipped[slot] ? ARMOR[inv.equipped[slot]!] : null;
+    const cmp = (v: number, base: number, pct: boolean) => {
+      const d = pct ? Math.round((v - base) * 100) : Math.round((v - base) * 10) / 10;
+      return d === 0 ? '' : ` <span class="${d > 0 ? 'compare-up' : 'compare-down'}">${d > 0 ? '▲' : '▼'} ${Math.abs(d)}</span>`;
+    };
+    let html =
+      `<div class="section-title">${escapeHtml(a.name)}</div><div class="desc" style="margin-bottom:12px">${escapeHtml(a.description)}</div>` +
+      this.kv('Poise', String(a.poise), cmp(a.poise, cur?.poise ?? 0, false)) +
+      this.kv('Weight', String(a.weight));
+    for (const t of DIRECT_DAMAGE_TYPES) {
+      const v = a.absorption[t] ?? 0;
+      html += this.kv(`<span style="color:${DAMAGE_COLORS[t]}">${t[0].toUpperCase() + t.slice(1)}</span>`, `${Math.round(v * 100)}%`, cmp(v, cur?.absorption[t] ?? 0, true));
+    }
+    if (a.statusResist?.poison) html += this.kv('Poison resistance', `+${a.statusResist.poison}`);
+    if (a.statusResist?.bleed) html += this.kv('Bleed resistance', `+${a.statusResist.bleed}`);
+    html += `<div style="height:14px"></div><div class="lore">${escapeHtml(a.lore)}</div>`;
+    const detail = el('div', { html });
+    const actions = el('div', { style: 'display:flex;gap:10px;margin-top:16px' });
+    if (inv.equipped[slot] !== a.id) {
+      actions.append(this.button('Wear', () => {
+        this.host.equipArmor(slot, a.id);
+        this.renderPause();
+      }, 'btn primary'));
+    } else {
+      actions.append(this.button('Remove', () => {
+        this.host.equipArmor(slot, null);
+        this.renderPause();
+      }, 'btn'));
+    }
+    detail.append(actions);
+    right.append(list, detail);
+  }
+
+  private renderAccessoryChoice(right: HTMLElement, slot: 'ring0' | 'ring1' | 'amulet'): void {
+    const inv = this.host.player.inventory;
+    const kind = slot === 'amulet' ? 'amulet' : 'ring';
+    const target: 0 | 1 | 'amulet' = slot === 'amulet' ? 'amulet' : slot === 'ring0' ? 0 : 1;
+    const worn = target === 'amulet' ? inv.amulet : inv.rings[target];
+    const owned = inv.accessories.filter((id) => ACCESSORIES[id].slot === kind);
+    if (!owned.length) {
+      right.append(el('div.section-title', { text: kind === 'ring' ? 'Rings' : 'Amulets' }), el('div.desc', { text: 'You own nothing for this slot yet.' }));
+      return;
+    }
+    this.selectedGear = Math.min(this.selectedGear, owned.length - 1);
+    const list = el('div.item-list', { style: 'margin-bottom:16px;max-height:206px;overflow-y:auto' });
+    owned.forEach((id, i) => {
+      const a = ACCESSORIES[id];
+      const elsewhere = target !== 'amulet' && inv.rings[target === 0 ? 1 : 0] === id;
+      const row = el('div', {
+        class: `item${i === this.selectedGear ? ' sel' : ''}${worn === id ? ' equipped' : ''}`,
+        html: `<span class="n"><span style="color:${a.glyph}">◆</span> ${escapeHtml(a.name)}</span><span class="m">${elsewhere ? 'other hand' : `${a.weight} wt`}</span>`,
+      });
+      row.addEventListener('click', () => {
+        this.selectedGear = i;
+        this.renderPause();
+      });
+      list.append(row);
+    });
+    const a = ACCESSORIES[owned[this.selectedGear]];
+    const detail = el('div', {
+      html:
+        `<div class="section-title">${escapeHtml(a.name)}</div><div class="desc" style="margin-bottom:12px">${escapeHtml(a.description)}</div>` +
+        this.kv('Weight', String(a.weight)) +
+        `<div style="height:14px"></div><div class="lore">${escapeHtml(a.lore)}</div>`,
+    });
+    const actions = el('div', { style: 'display:flex;gap:10px;margin-top:16px' });
+    if (worn !== a.id) {
+      actions.append(this.button('Wear', () => {
+        this.host.equipAccessory(target, a.id);
+        this.renderPause();
+      }, 'btn primary'));
+    } else {
+      actions.append(this.button('Remove', () => {
+        this.host.equipAccessory(target, null);
+        this.renderPause();
+      }, 'btn'));
+    }
+    detail.append(actions);
+    right.append(list, detail);
   }
 
   private renderInventory(body: HTMLElement): void {
@@ -387,13 +546,16 @@ export class Menus {
       list.append(row);
     });
     const s = SPELLS[inv.spells[this.selectedSpell]];
-    const dmg = s.damage ? Math.round(totalDamage(attackRating(s.damage, p.attributes))) : 0;
+    const power = spellPower(p);
+    const dmg = s.damage ? Math.round(totalDamage(attackRating(s.damage, p.attributes)) * s.damage.motionValue * power) : 0;
     const scaling = s.damage?.scaling ? Object.entries(s.damage.scaling).map(([k, g]) => `${ATTRIBUTE_INFO[k as AttributeId].short} ${g}`).join(' · ') : '—';
     const detail = el('div', {
       html:
         `<div class="section-title">${escapeHtml(s.name)}</div><div class="desc" style="margin-bottom:12px">${escapeHtml(s.description)}</div>` +
-        this.kv('School', s.school) +
+        this.kv('School', SCHOOL_NAMES[s.school]) +
         this.kv('Mana cost', String(s.manaCost)) +
+        (s.hpCost ? this.kv('Blood price', `${Math.round(s.hpCost * 100)}% health`) : '') +
+        this.kv('Spell power', `×${power.toFixed(2)}`, p.weapon.catalyst ? '' : ' <span style="color:var(--text-dim);font:13px var(--serif)">(no catalyst)</span>') +
         this.kv('Cast time', `${s.castTime.toFixed(2)} s`) +
         this.kv('Cooldown', s.cooldown ? `${s.cooldown.toFixed(1)} s` : '—') +
         this.kv('Range', `${s.range} m`) +

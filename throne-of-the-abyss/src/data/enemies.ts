@@ -45,6 +45,8 @@ export interface EnemyData {
   };
   elite: boolean;
   respawns: boolean;
+  /** Items granted when a non-respawning foe falls. */
+  drops?: import('@/items/Grants').ItemGrant[];
   /** HUD bar flavour line for elites/bosses. */
   bossTitle?: string;
 }
@@ -124,6 +126,11 @@ export const ENEMIES: Record<string, EnemyData> = {
     },
     elite: true,
     respawns: false,
+    drops: [
+      { type: 'armor', id: 'gravebound_helm' },
+      { type: 'armor', id: 'gravebound_plate' },
+      { type: 'accessory', id: 'gravebound_signet' },
+    ],
     bossTitle: 'Oathkeeper of the Ashen Gate',
   },
 };

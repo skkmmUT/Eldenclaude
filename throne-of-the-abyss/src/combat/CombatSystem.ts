@@ -256,13 +256,14 @@ export class CombatSystem {
       {
         attributes: attacker?.attributes,
         motionValue: h.motionValue,
-        buffMultiplier: attacker?.damageBuff ?? 1,
-        critMultiplier: h.critMultiplier,
+        buffMultiplier: (attacker?.damageBuff ?? 1) * (attacker?.mods.damageMul ?? 1),
+        typeBuffs: attacker?.mods.typeBuffs,
+        critMultiplier: h.critMultiplier ? h.critMultiplier * (attacker?.mods.critMul ?? 1) : undefined,
         counterHit: counterHit && !guarded,
       },
       {
         defense: target.defense,
-        absorption: target.absorption,
+        absorption: target.effectiveAbsorption,
         damageTakenMultiplier: target.damageTakenMultiplier,
         guardAbsorption: guarded ? target.guardAbsorption : undefined,
       },

@@ -1,8 +1,10 @@
-import { BoxGeometry, Group, Mesh, Vector3 } from 'three';
+import { Group, Mesh, Vector3 } from 'three';
+import { roundedBox } from '@/render/SmoothGeometry';
 import type { Player } from '@/characters/player/Player';
 import { glowMaterial, surfaceMaterial } from '@/render/Materials';
 import { metalTexture } from '@/render/TextureFactory';
 import type { Interactable } from './Interactable';
+import type { ItemGrant } from '@/items/Grants';
 
 /** Treasure chest with an opening lid; grants its contents once. */
 export class Chest implements Interactable {
@@ -18,33 +20,33 @@ export class Chest implements Interactable {
     readonly id: string,
     readonly position: Vector3,
     yaw: number,
-    readonly contents: { weapon?: string; consumable?: string },
+    readonly contents: ItemGrant[],
   ) {
     this.group.position.copy(position);
     this.group.rotation.y = yaw;
     const wood = surfaceMaterial({ color: '#3a2216' });
     const iron = surfaceMaterial({ color: '#8a8070', map: metalTexture() });
     const gold = surfaceMaterial({ color: '#d8a83c', map: metalTexture(), emissive: '#d8a83c', emissiveIntensity: 0.1 });
-    const body = new Mesh(new BoxGeometry(1.2, 0.6, 0.75), wood);
+    const body = new Mesh(roundedBox(1.2, 0.6, 0.75, 0.05), wood);
     body.position.y = 0.3;
     body.castShadow = body.receiveShadow = true;
     this.group.add(body);
     for (const x of [-0.5, 0.5]) {
-      const band = new Mesh(new BoxGeometry(0.08, 0.62, 0.77), iron);
+      const band = new Mesh(roundedBox(0.08, 0.62, 0.77, 0.03), iron);
       band.position.set(x, 0.3, 0);
       this.group.add(band);
     }
     this.lid.position.set(0, 0.6, -0.375);
-    const lidMesh = new Mesh(new BoxGeometry(1.22, 0.22, 0.77), wood);
+    const lidMesh = new Mesh(roundedBox(1.22, 0.22, 0.77, 0.08), wood);
     lidMesh.position.set(0, 0.11, 0.375);
     lidMesh.castShadow = true;
-    const lidTrim = new Mesh(new BoxGeometry(1.24, 0.05, 0.79), gold);
+    const lidTrim = new Mesh(roundedBox(1.24, 0.05, 0.79, 0.02), gold);
     lidTrim.position.set(0, 0.0, 0.375);
-    const lock = new Mesh(new BoxGeometry(0.14, 0.16, 0.05), gold);
+    const lock = new Mesh(roundedBox(0.14, 0.16, 0.05, 0.02), gold);
     lock.position.set(0, -0.02, 0.77);
     this.lid.add(lidMesh, lidTrim, lock);
     this.group.add(this.lid);
-    this.glow = new Mesh(new BoxGeometry(1.0, 0.05, 0.6), glowMaterial('#ffd27a', 2.5));
+    this.glow = new Mesh(roundedBox(1.0, 0.05, 0.6, 0.02), glowMaterial('#ffd27a', 2.5));
     this.glow.position.y = 0.58;
     this.glow.visible = false;
     this.group.add(this.glow);

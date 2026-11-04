@@ -4,6 +4,13 @@ import type { Character } from '@/characters/Character';
 import type { ExternalHit } from '@/combat/CombatSystem';
 import { radialSprite } from '@/render/TextureFactory';
 
+/** Anything time-based that a spell leaves behind (returns false when finished). */
+export interface TimedEffect {
+  update(dt: number): boolean;
+  /** Remove anything the effect added to the scene (called when effects are cleared). */
+  dispose?(): void;
+}
+
 interface Projectile {
   owner: Character;
   pos: Vector3;
@@ -18,11 +25,23 @@ interface Projectile {
   hit: ExternalHit;
   group: Group;
   alive: boolean;
+  drain: number;
+  freeze: number;
 }
 
 /** Magic missiles: homing, collide with geometry and opposing hurtboxes. */
 export class ProjectileSystem {
   private list: Projectile[] = [];
+  private effects: TimedEffect[] = [];
+
+  /** Run a timed spell effect (meteor, lightning, rift, summon) until it reports done. */
+  schedule(e: TimedEffect): void {
+    this.effects.push(e);
+  }
+
+  get activeEffects(): number {
+    return this.effects.length;
+  }
   private readonly tmp = new Vector3();
   private readonly tmp2 = new Vector3();
 
@@ -35,6 +54,7 @@ export class ProjectileSystem {
     opts: { speed: number; radius: number; life: number; homing: number; color: string; core: string },
     hit: ExternalHit,
     target: Character | null,
+    extra: { drain?: number; freeze?: number } = {},
   ): void {
     const group = new Group();
     const glow = new Sprite(new SpriteMaterial({ map: radialSprite(), color: opts.color, blending: AdditiveBlending, depthWrite: false, transparent: true }));
@@ -58,10 +78,13 @@ export class ProjectileSystem {
       hit,
       group,
       alive: true,
+      drain: extra.drain ?? 0,
+      freeze: extra.freeze ?? 0,
     });
   }
 
   update(dt: number): void {
+    if (this.effects.length) this.effects = this.effects.filter((e) => e.update(dt));
     for (const p of this.list) {
       if (!p.alive) continue;
       p.life -= dt;
@@ -91,8 +114,14 @@ export class ProjectileSystem {
         const d = Math.hypot(p.pos.x - cx, p.pos.y - y, p.pos.z - cz);
         if (d <= p.radius + c.hurtRadius) {
           const dir = this.tmp.copy(p.vel).setY(0).normalize();
+          const hp0 = c.hp;
           const r = this.ctx.combat.resolve(p.owner, c, p.hit, p.pos.clone(), dir.clone());
           if (r !== 'dodged') {
+            if (p.drain > 0 && r !== 'parried') {
+              p.owner.heal(Math.max(0, hp0 - c.hp) * p.drain);
+              this.ctx.vfx.soulRelease(p.owner.centerPoint(new Vector3()), p.color, 20);
+            }
+            if (p.freeze > 0 && (r === 'hit' || r === 'blocked')) c.freeze(p.freeze);
             this.explode(p);
             break;
           }
@@ -118,5 +147,7 @@ export class ProjectileSystem {
   clear(): void {
     for (const p of this.list) this.ctx.scene.remove(p.group);
     this.list = [];
+    for (const e of this.effects) e.dispose?.();
+    this.effects = [];
   }
 }

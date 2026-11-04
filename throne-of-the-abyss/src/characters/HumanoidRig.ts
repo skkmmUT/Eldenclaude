@@ -23,7 +23,7 @@ import { glowMaterial, outlineMaterial, surfaceMaterial } from '@/render/Materia
 import { metalTexture } from '@/render/TextureFactory';
 import { GeometryDetail, lathe, roundedBox, seg, taperedTube } from '@/render/SmoothGeometry';
 
-export type HelmetStyle = 'crowned' | 'sallet' | 'horned' | 'hood';
+export type HelmetStyle = 'crowned' | 'sallet' | 'horned' | 'hood' | 'none';
 export type PauldronStyle = 'ornate' | 'spiked' | 'rags';
 
 /** Data-driven look of a humanoid; every enemy/NPC is a variation of this. */
@@ -558,7 +558,9 @@ export class HumanoidRig {
     const hy = 0.12;
     this.add('head', new SphereGeometry(0.115, seg(28), seg(20)), skin, [0, hy, 0.01], [0, 0, 0], [0.9, 1.08, 1]);
     const eyeGeo = new SphereGeometry(1, 16, 8).scale(0.021, 0.0085, 0.006);
-    if (style === 'hood') {
+    if (style === 'none') {
+      // Bare head: the hair carries the silhouette.
+    } else if (style === 'hood') {
       this.add('head', new SphereGeometry(0.15, seg(28), seg(16), 0, Math.PI * 2, 0, Math.PI * 0.62), cloth, [0, hy + 0.01, -0.01], [-0.25, 0, 0], [1, 1.15, 1.15]);
       this.add('head', lathe([[0.17, -0.18], [0.155, -0.06], [0.13, 0.04]], 24), cloth, [0, hy - 0.02, -0.06], [-0.35, 0, 0]);
       this.add('head', new SphereGeometry(0.105, seg(20), seg(14)), surfaceMaterial({ color: '#08060c', roughness: 1 }), [0, hy - 0.005, 0.045], [0, 0, 0], [0.85, 0.95, 0.6]);
@@ -586,7 +588,7 @@ export class HumanoidRig {
         this.add('head', taperedTube([new Vector3(0, hy + 0.12, 0.05), new Vector3(0, hy + 0.17, -0.03), new Vector3(0, hy + 0.15, -0.12)], (t) => 0.012 * (1 - t * 0.6), 8, 10), armorDark, [0, 0, 0], [0, 0, 0], [1, 1, 1], true);
       }
     }
-    const ez = style === 'hood' ? 0.135 : 0.156;
+    const ez = style === 'hood' || style === 'none' ? 0.122 : 0.156;
     this.add('head', eyeGeo, eye, [0.042, hy + 0.012, ez], [0, 0, -0.12]);
     this.add('head', eyeGeo, eye, [-0.042, hy + 0.012, ez], [0, 0, 0.12]);
 

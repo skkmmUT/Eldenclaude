@@ -36,6 +36,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     guardBoost: 0.55,
     critical: 1.0,
     moveset: SS_MOVES,
+    art: { name: 'Ashen Lunge', description: 'A committed lunging thrust that closes distance with hyper-armour.', mana: 10, kind: 'attack', attack: 'ss_art' },
     visual: {
       shape: 'longsword',
       bladeLength: 0.92,
@@ -63,6 +64,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     guardBoost: 0.75,
     critical: 1.0,
     moveset: GS_MOVES,
+    art: { name: 'Gravequake', description: 'Drive the blade into the earth; a wide shockwave staggers everything nearby.', mana: 16, kind: 'attack', attack: 'gs_art' },
     visual: {
       shape: 'gravecleaver',
       bladeLength: 1.35,
@@ -122,3 +124,90 @@ export const WEAPONS: Record<string, WeaponData> = {
     },
   },
 };
+
+const LIGHT_COMMON = { running: 'ss_running', roll: 'ss_roll', jump: 'ss_jump', plunge: 'ss_plunge' };
+const HEAVY_COMMON = { running: 'gs_running', roll: 'gs_roll', jump: 'ss_jump', plunge: 'ss_plunge' };
+const ALL = (v: number) => ({ physical: v, fire: v * 0.5, ice: v * 0.5, lightning: v * 0.45, holy: v * 0.45, dark: v * 0.5, arcane: v * 0.45 });
+
+Object.assign(WEAPONS, {
+  wraithfang: {
+    id: 'wraithfang', name: 'Wraithfang', category: 'dagger',
+    description: 'A thin, curved dagger. Strikes fast and opens deep wounds.',
+    lore: 'Carried by the assassins of the Hollow Court, who were paid in names rather than coin.',
+    weight: 1.5, base: { physical: 84 }, scaling: { dexterity: 'B', arcane: 'D' }, requirements: { dexterity: 11 },
+    buildup: { bleed: 24 }, guard: ALL(0.45), guardBoost: 0.3, critical: 1.45,
+    moveset: { light: 'dg_light1', heavy: 'dg_heavy', charged: 'dg_charged', ...LIGHT_COMMON },
+    art: { name: 'Shadowstep Cut', description: 'Dart forward through the foe with a piercing cut.', mana: 8, kind: 'attack', attack: 'dg_art' },
+    visual: { shape: 'dagger', bladeLength: 0.34, bladeWidth: 0.045, gripLength: 0.13, bladeColor: '#b8b4c8', hiltColor: '#3a2a4a', gripColor: '#1a1018', runeColor: '#9a5cff' },
+  },
+  pilgrims_pike: {
+    id: 'pilgrims_pike', name: "Pilgrim's Pike", category: 'spear',
+    description: 'A long ash-wood spear with a leaf-shaped head. Keeps foes at a distance.',
+    lore: 'The road to the Cathedral was guarded by pikemen who never asked where pilgrims were going — only whether they were alive.',
+    weight: 7, base: { physical: 128 }, scaling: { strength: 'C', dexterity: 'C' }, requirements: { strength: 12, dexterity: 11 },
+    guard: ALL(0.6), guardBoost: 0.5, critical: 1.0,
+    moveset: { light: 'sp_light1', heavy: 'sp_heavy', charged: 'sp_charged', ...LIGHT_COMMON, running: 'sp_running' },
+    art: { name: 'Piercing Gale', description: 'A long-range charging thrust.', mana: 12, kind: 'attack', attack: 'sp_art' },
+    visual: { shape: 'spear', bladeLength: 0.36, bladeWidth: 0.075, gripLength: 1.25, bladeColor: '#c9c6d6', hiltColor: '#9a7a3a', gripColor: '#6b5236' },
+  },
+  keepwarden_halberd: {
+    id: 'keepwarden_halberd', name: 'Keepwarden Halberd', category: 'halberd',
+    description: 'A heavy halberd with a crescent blade and a hook.',
+    lore: 'The Fallen Keep held for nine days after the Cataclysm. The wardens held it for eight hundred years more.',
+    weight: 12, base: { physical: 152 }, scaling: { strength: 'B', dexterity: 'D' }, requirements: { strength: 15, dexterity: 12 },
+    guard: ALL(0.7), guardBoost: 0.62, critical: 1.0,
+    moveset: { light: 'hb_light1', heavy: 'hb_heavy', charged: 'hb_charged', ...HEAVY_COMMON },
+    art: { name: 'Reaping Arc', description: 'A full-circle reap that cuts everything around you.', mana: 14, kind: 'attack', attack: 'hb_art' },
+    visual: { shape: 'halberd', bladeLength: 0.42, bladeWidth: 0.08, gripLength: 1.35, bladeColor: '#b0aab8', hiltColor: '#6b5b3a', gripColor: '#3a2a1e' },
+  },
+  bearded_axe: {
+    id: 'bearded_axe', name: "Woodsman's Bearded Axe", category: 'axe',
+    description: 'A broad-bladed axe. Heavy chops that break guards.',
+    lore: 'Felled half the Elder Bough’s suckers before its owner learned the tree remembers.',
+    weight: 6, base: { physical: 140 }, scaling: { strength: 'B', dexterity: 'E' }, requirements: { strength: 13 },
+    guard: ALL(0.55), guardBoost: 0.45, critical: 1.0,
+    moveset: { light: 'ax_light1', heavy: 'ax_heavy', charged: 'ax_charged', ...LIGHT_COMMON },
+    art: { name: 'War Cry', description: 'A roaring cry: +20% damage and +10 poise for 20 seconds.', mana: 12, kind: 'buff', buff: { id: 'war_cry', name: 'War Cry', color: '#ff7a3a', duration: 20, time: 0, mods: { damageMul: 1.2, poise: 10 } } },
+    visual: { shape: 'axe', bladeLength: 0.2, bladeWidth: 0.2, gripLength: 0.62, bladeColor: '#b4ada4', hiltColor: '#5a4a3a', gripColor: '#5e4026' },
+  },
+  gravel_maul: {
+    id: 'gravel_maul', name: 'Gravel Maul', category: 'hammer',
+    description: 'A two-handed stone-breaker. Every blow staggers.',
+    lore: 'Quarrymen of the Ashen Kingdom shaped the cathedral with these. Then they shaped the rebellion.',
+    weight: 15, base: { physical: 176 }, scaling: { strength: 'A' }, requirements: { strength: 18 },
+    guard: ALL(0.75), guardBoost: 0.7, critical: 1.0,
+    moveset: { light: 'hm_light1', heavy: 'hm_heavy', charged: 'hm_charged', ...HEAVY_COMMON },
+    art: { name: 'Earthbreaker', description: 'Leap and bring the maul down in a crater-making blow.', mana: 16, kind: 'attack', attack: 'hm_art' },
+    visual: { shape: 'hammer', bladeLength: 0.3, bladeWidth: 0.14, gripLength: 0.95, bladeColor: '#8a8580', hiltColor: '#4a4038', gripColor: '#4a3626' },
+  },
+  crimson_fang: {
+    id: 'crimson_fang', name: 'Crimson Fang', category: 'katana',
+    description: 'A curved, single-edged blade. Fast, flowing cuts that cause bleeding.',
+    lore: 'Forged in the Crimson Forest from iron drawn out of the soil — the soil there is mostly old blood.',
+    weight: 5, base: { physical: 114 }, scaling: { dexterity: 'B', strength: 'D', arcane: 'D' }, requirements: { dexterity: 14, strength: 10 },
+    buildup: { bleed: 32 }, guard: ALL(0.55), guardBoost: 0.4, critical: 1.1,
+    moveset: { light: 'kt_light1', heavy: 'kt_heavy', charged: 'kt_charged', ...LIGHT_COMMON },
+    art: { name: 'Crimson Draw', description: 'A blindingly fast dashing draw-cut.', mana: 12, kind: 'attack', attack: 'kt_art' },
+    visual: { shape: 'katana', bladeLength: 0.82, bladeWidth: 0.04, gripLength: 0.26, bladeColor: '#d8d4e0', hiltColor: '#7a1022', gripColor: '#1a0c10', runeColor: '#ff2a4a' },
+  },
+  elder_bough_staff: {
+    id: 'elder_bough_staff', name: 'Elder Bough Staff', category: 'staff',
+    description: 'A catalyst cut from the Elder Bough. Spells cast with it are 25% stronger.',
+    lore: 'The tree let this branch go willingly. Those who cut others found their axes rusted by morning.',
+    weight: 3, base: { physical: 58 }, scaling: { strength: 'E', intelligence: 'C', faith: 'C' }, requirements: { intelligence: 10 },
+    guard: ALL(0.4), guardBoost: 0.3, critical: 1.0, catalyst: { spellMul: 1.25 },
+    moveset: { light: 'st_light1', heavy: 'st_heavy', charged: 'st_heavy', ...LIGHT_COMMON },
+    art: { name: 'Arcane Ward', description: 'A shimmering ward: +25% absorption of all damage for 15 seconds.', mana: 14, kind: 'buff', buff: { id: 'arcane_ward', name: 'Arcane Ward', color: '#9fd8ff', duration: 15, time: 0, mods: { absorption: { physical: 0.25, fire: 0.25, ice: 0.25, lightning: 0.25, holy: 0.25, dark: 0.25, arcane: 0.25 } } } },
+    visual: { shape: 'staff', bladeLength: 0.1, bladeWidth: 0.05, gripLength: 1.3, bladeColor: '#9fd8ff', hiltColor: '#c8983a', gripColor: '#6b5236', runeColor: '#bfe8ff' },
+  },
+  athenaeum_grimoire: {
+    id: 'athenaeum_grimoire', name: 'Grimoire of the Black Athenaeum', category: 'grimoire',
+    description: 'A sorcerous tome. Spells cast with it are 30% stronger.',
+    lore: 'Half its pages are blank. The other half are blank too, until you need them.',
+    weight: 2, base: { physical: 40, dark: 34 }, scaling: { intelligence: 'B' }, requirements: { intelligence: 12 },
+    guard: ALL(0.35), guardBoost: 0.25, critical: 1.0, catalyst: { spellMul: 1.3 },
+    moveset: { light: 'gr_light1', heavy: 'gr_heavy', charged: 'gr_heavy', ...LIGHT_COMMON },
+    art: { name: 'Tome Surge', description: 'The pages ignite: spells +35% for 20 seconds.', mana: 12, kind: 'buff', buff: { id: 'tome_surge', name: 'Tome Surge', color: '#9a5cff', duration: 20, time: 0, mods: { spellMul: 1.35 } } },
+    visual: { shape: 'grimoire', bladeLength: 0.1, bladeWidth: 0.1, gripLength: 0.1, bladeColor: '#000000', hiltColor: '#c8983a', gripColor: '#2a1430', runeColor: '#b46bff' },
+  },
+} satisfies Record<string, WeaponData>);
