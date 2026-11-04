@@ -36,6 +36,11 @@ export class InputManager {
   invertY = false;
   /** Allows mouse buttons without pointer lock (automated tests, menus). */
   allowUnlockedMouse = false;
+  /**
+   * Fallback when the page may not capture the pointer (embedded previews / iframes):
+   * the camera follows plain mouse movement and mouse buttons work without capture.
+   */
+  freeLook = false;
   enabled = true;
 
   constructor(private readonly element: HTMLElement, bindings: BindingMap = DEFAULT_BINDINGS) {
@@ -54,10 +59,16 @@ export class InputManager {
     if (this.pointerLocked) return;
     try {
       const p = this.element.requestPointerLock() as unknown as Promise<void> | undefined;
-      if (p && typeof p.catch === 'function') p.catch(() => undefined);
+      if (p && typeof p.catch === 'function') p.catch(() => this.enableFreeLook());
     } catch {
-      /* not available (headless / iframe) */
+      this.enableFreeLook();
     }
+  }
+
+  private enableFreeLook(): void {
+    if (this.freeLook) return;
+    this.freeLook = true;
+    this.allowUnlockedMouse = true;
   }
 
   exitPointerLock(): void {
@@ -80,8 +91,9 @@ export class InputManager {
       this.usingGamepad = false;
     });
     window.addEventListener('mouseup', (e) => this.setPhysical(`Mouse${e.button}`, false));
+    document.addEventListener('pointerlockerror', () => this.enableFreeLook());
     window.addEventListener('mousemove', (e) => {
-      if (!this.pointerLocked) return;
+      if (!this.pointerLocked && !this.freeLook) return;
       this.mouseDX += e.movementX;
       this.mouseDY += e.movementY;
     });
