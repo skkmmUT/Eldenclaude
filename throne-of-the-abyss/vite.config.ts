@@ -10,7 +10,8 @@ export default defineConfig({
     target: 'es2022',
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
-      output: { manualChunks: { three: ['three'] } },
+      // The single-file build (tools/build-single.mjs) needs one chunk.
+      output: process.env.SINGLE_FILE ? { inlineDynamicImports: true } : { manualChunks: { three: ['three'] } },
     },
   },
   server: { host: true, port: 5173 },
