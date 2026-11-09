@@ -461,7 +461,7 @@ reg(
   atk({
     ...gkBase, id: 'gk_sweep', windup: SWEEP_WIND, strike: SWEEP_STRIKE, follow: SWEEP_FOLLOW,
     startup: frames(30), active: frames(10), recovery: frames(34), motionValue: 1.2, poiseDamage: 40, guardDamage: 60,
-    lunge: 1.0, reaction: 'stagger', hitStop: 0.12, shake: 0.5, sound: 'heavy', next: 'gk_overhead',
+    lunge: 1.9, reaction: 'stagger', hitStop: 0.12, shake: 0.5, sound: 'heavy', next: 'gk_overhead',
   }),
   atk({
     ...gkBase, id: 'gk_overhead', windup: OVERHEAD_WIND, strike: OVERHEAD_STRIKE, follow: OVERHEAD_FOLLOW,
@@ -495,6 +495,83 @@ reg(
   }),
 );
 
+
+// ===== The Fallen King (region boss) ====================================================
+// Every attack keeps a readable wind-up (≥ 0.5 s, chained follow-ups ≥ 0.3 s) and a short
+// active window (≤ 0.2 s) so a well-timed roll always avoids it; area attacks mark their
+// zone on the ground for the whole wind-up.
+const fkBase = { kind: 'enemy' as const, staminaCost: 0, trail: '#ffb02a', tracking: 3.0, hyperArmor: true, parryable: true };
+const fkDark = { trail: '#9a4cff', extraDamage: { dark: 70 } };
+reg(
+  atk({
+    ...fkBase, id: 'fk_sweep', windup: SWEEP_WIND, strike: SWEEP_STRIKE, follow: SWEEP_FOLLOW,
+    startup: frames(34), active: frames(11), recovery: frames(36), motionValue: 1.25, poiseDamage: 45, guardDamage: 70,
+    lunge: 2.2, reaction: 'stagger', hitStop: 0.12, shake: 0.55, sound: 'heavy', next: 'fk_backhand', telegraph: '#ffd27a',
+  }),
+  atk({
+    ...fkBase, id: 'fk_backhand', windup: SLASH_B_WIND, strike: SLASH_B_STRIKE, follow: SLASH_B_END,
+    startup: frames(22), active: frames(10), recovery: frames(40), motionValue: 1.1, poiseDamage: 40, guardDamage: 60,
+    lunge: 1.0, reaction: 'stagger', hitStop: 0.1, shake: 0.45, sound: 'heavy',
+  }),
+  atk({
+    ...fkBase, id: 'fk_overhead', windup: OVERHEAD_WIND, strike: OVERHEAD_STRIKE, follow: OVERHEAD_FOLLOW,
+    startup: frames(40), active: frames(9), recovery: frames(46), motionValue: 1.7, poiseDamage: 65, guardDamage: 90,
+    lunge: 1.0, reaction: 'knockdown', hitStop: 0.16, shake: 0.75, sound: 'heavy', telegraph: '#ff3b2a',
+    shockwave: { radius: 2.6, forward: 2.2, damageScale: 0.45 },
+  }),
+  atk({
+    ...fkBase, id: 'fk_slam', windup: PLUNGE_WIND, strike: PLUNGE_STRIKE, follow: OVERHEAD_FOLLOW,
+    startup: frames(66), active: frames(8), recovery: frames(52), motionValue: 1.4, poiseDamage: 70, guardDamage: 100,
+    lunge: 0, reaction: 'knockdown', hitStop: 0.18, shake: 1.0, sound: 'heavy', telegraph: '#ff3b2a', tracking: 1.2,
+    shockwave: { radius: 4.4, forward: 0.9, damageScale: 0.85 }, parryable: false,
+  }),
+  atk({
+    ...fkBase, id: 'fk_thrust', windup: THRUST_WIND, strike: THRUST_STRIKE, follow: THRUST_STRIKE,
+    startup: frames(38), active: frames(10), recovery: frames(40), motionValue: 1.35, poiseDamage: 45, lunge: 4.6,
+    reaction: 'stagger', sound: 'thrust', telegraph: '#ffd27a', tracking: 2.2,
+  }),
+  // Counter-attack when struck while his guard is up: quick but still readable.
+  atk({
+    ...fkBase, id: 'fk_counter', windup: OVERHEAD_WIND, strike: OVERHEAD_STRIKE, follow: OVERHEAD_FOLLOW,
+    startup: frames(34), active: frames(9), recovery: frames(40), motionValue: 1.15, poiseDamage: 40, guardDamage: 60,
+    lunge: 0.6, reaction: 'stagger', hitStop: 0.11, shake: 0.5, sound: 'heavy', telegraph: '#ffffff',
+  }),
+  // ---- Phase two: armour shattered, abyssal energy, new combos --------------------------
+  atk({
+    ...fkBase, ...fkDark, id: 'fk2_sweep', windup: SWEEP_WIND, strike: SWEEP_STRIKE, follow: SWEEP_FOLLOW,
+    startup: frames(32), active: frames(11), recovery: frames(30), motionValue: 1.2, poiseDamage: 45, guardDamage: 70,
+    lunge: 2.4, reaction: 'stagger', hitStop: 0.12, shake: 0.55, sound: 'heavy', next: 'fk2_backhand', telegraph: '#b05cff',
+  }),
+  atk({
+    ...fkBase, ...fkDark, id: 'fk2_backhand', windup: SLASH_B_WIND, strike: SLASH_B_STRIKE, follow: SLASH_B_END,
+    startup: frames(20), active: frames(10), recovery: frames(28), motionValue: 1.05, poiseDamage: 40,
+    lunge: 1.2, reaction: 'stagger', hitStop: 0.1, shake: 0.45, sound: 'heavy', next: 'fk2_finisher',
+  }),
+  atk({
+    ...fkBase, ...fkDark, id: 'fk2_finisher', windup: OVERHEAD_WIND, strike: OVERHEAD_STRIKE, follow: OVERHEAD_FOLLOW,
+    startup: frames(40), active: frames(9), recovery: frames(54), motionValue: 1.6, poiseDamage: 65, guardDamage: 90,
+    lunge: 1.2, reaction: 'knockdown', hitStop: 0.16, shake: 0.8, sound: 'heavy', telegraph: '#b05cff',
+    shockwave: { radius: 2.4, forward: 2.2, damageScale: 0.5 },
+  }),
+  atk({
+    ...fkBase, ...fkDark, id: 'fk2_leap', windup: PLUNGE_WIND, strike: OVERHEAD_STRIKE, follow: OVERHEAD_FOLLOW,
+    startup: frames(52), active: frames(8), recovery: frames(48), motionValue: 1.8, poiseDamage: 70, guardDamage: 100,
+    lunge: 7.0, reaction: 'knockdown', hitStop: 0.18, shake: 1.0, sound: 'heavy', telegraph: '#b05cff', tracking: 2.0,
+    shockwave: { radius: 3.2, forward: 1.4, damageScale: 0.6 }, parryable: false,
+  }),
+  atk({
+    ...fkBase, ...fkDark, id: 'fk2_delay', windup: OVERHEAD_WIND, strike: OVERHEAD_STRIKE, follow: OVERHEAD_FOLLOW,
+    startup: frames(60), active: frames(9), recovery: frames(40), motionValue: 1.7, poiseDamage: 65,
+    lunge: 1.4, reaction: 'knockdown', hitStop: 0.16, shake: 0.8, sound: 'heavy', telegraph: '#b05cff',
+    shockwave: { radius: 2.8, forward: 2.2, damageScale: 0.5 },
+  }),
+  atk({
+    ...fkBase, ...fkDark, id: 'fk2_slam', windup: PLUNGE_WIND, strike: PLUNGE_STRIKE, follow: OVERHEAD_FOLLOW,
+    startup: frames(72), active: frames(8), recovery: frames(46), motionValue: 1.5, poiseDamage: 70, guardDamage: 100,
+    lunge: 0, reaction: 'knockdown', hitStop: 0.18, shake: 1.1, sound: 'heavy', telegraph: '#b05cff', tracking: 1.2,
+    shockwave: { radius: 4.4, forward: 0.9, damageScale: 0.9 }, parryable: false,
+  }),
+);
 
 // ===== Additional weapon classes ========================================================
 const SA = { windup: SLASH_A_WIND, strike: SLASH_A_STRIKE, follow: SLASH_A_FOLLOW };
@@ -554,6 +631,7 @@ reg(
   // Longsword & greatsword skills.
   atk({ id: 'ss_art', kind: 'heavy', ...TH, startup: frames(14), active: frames(8), recovery: frames(24), staminaCost: 16, motionValue: 1.6, poiseDamage: 28, lunge: 3.2, hyperArmor: true, trail: '#c58bff', ...heavyFx, sound: 'thrust' }),
   atk({ id: 'gs_art', kind: 'heavy', ...OH, startup: frames(30), active: frames(8), recovery: frames(36), staminaCost: 32, motionValue: 1.8, poiseDamage: 60, lunge: 0.5, hyperArmor: true, ...heavyFx, reaction: 'knockdown', trail: '#ffb347', shockwave: { radius: 3.6, forward: 1.8, damageScale: 0.7 }, parryable: false }),
+  atk({ id: 'gs_art_kingsfall', kind: 'heavy', ...OH, startup: frames(34), active: frames(8), recovery: frames(38), staminaCost: 34, motionValue: 1.9, poiseDamage: 70, lunge: 0.6, hyperArmor: true, ...heavyFx, reaction: 'knockdown', trail: '#9a4cff', extraDamage: { dark: 90 }, shockwave: { radius: 4.2, forward: 1.8, damageScale: 0.8 }, parryable: false }),
 );
 
 export function getAttack(id: string): AttackData {

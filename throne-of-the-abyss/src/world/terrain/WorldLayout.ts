@@ -11,7 +11,7 @@ export const WORLD = {
   size: 1120,
   segments: 280,
   waterLevel: -0.6,
-  castle: { minX: -44, maxX: 44, minZ: -48, maxZ: 52 },
+  castle: { minX: -44, maxX: 44, minZ: -48, maxZ: 110 },
   lakes: [
     { x: 168, z: -196, r: 62 },
     { x: -218, z: 72, r: 50 },

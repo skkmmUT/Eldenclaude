@@ -28,6 +28,7 @@ export type EnemyState =
   | 'stagger'
   | 'retreat'
   | 'phaseShift'
+  | 'summon'
   | 'critVictim'
   | 'dead';
 
@@ -37,6 +38,14 @@ export interface EnemySpawn {
   position: Vector3;
   yaw: number;
   patrol?: Vector3[];
+  /** Not present until raised by a boss (summoned allies). */
+  dormant?: boolean;
+}
+
+/** Lets the level decide whether a boss may raise allies and spawns them. */
+export interface SummonHook {
+  available(boss: Enemy): boolean;
+  raise(boss: Enemy): void;
 }
 
 const SHIELD_GUARD: Absorptions = { physical: 0.92, fire: 0.6, ice: 0.6, lightning: 0.5, holy: 0.6, dark: 0.6, arcane: 0.6 };
@@ -76,6 +85,14 @@ export class Enemy extends Character implements CriticalVictim {
   private readonly tmp = new Vector3();
   private readonly dir = new Vector3();
   private shieldMesh: ReturnType<typeof buildShield> | null = null;
+  private rigLook: EnemyData['appearance'];
+  /** Phase-two tempo multiplier (attacks and movement). */
+  private tempo = 1;
+  private counterCooldown = 0;
+  private summonPending = false;
+  summonHook: SummonHook | null = null;
+  /** Dormant summons wait unseen until raised. */
+  asleep = false;
   /** Set when killed so the level can track it (no respawn for elites). */
   defeated = false;
   onDefeated: ((e: Enemy) => void) | null = null;
@@ -103,6 +120,7 @@ export class Enemy extends Character implements CriticalVictim {
     });
     this.data = data;
     this.spawn = spawn;
+    this.rigLook = data.appearance;
     this.isBoss = data.elite;
     this.perception = new Perception(ctx.world, data.perception);
     this.locomotion = new BlendSpace1D([
@@ -139,6 +157,33 @@ export class Enemy extends Character implements CriticalVictim {
 
   /** Back to spawn state (altar rest / first load). */
   reset(): void {
+    this.revive(this.spawn.position, this.spawn.yaw);
+    if (this.spawn.dormant) this.sleep();
+  }
+
+  /** Hide a summon until its master raises it. */
+  private sleep(): void {
+    this.asleep = true;
+    this.dead = true;
+    this.state = 'dead';
+    this.dissolve = 99;
+    this.director.release(this);
+    this.setVisible(false);
+  }
+
+  /** Raise a dormant summon at a point, already hostile. */
+  awaken(pos: Vector3, yaw: number): void {
+    const target = this.target;
+    this.revive(pos, yaw);
+    this.target = target;
+    this.setVisible(true);
+    this.ctx.vfx.soulRelease(this.centerPoint(this.tmp), '#ffb02a', 70);
+    this.ctx.vfx.ring(pos, 1.6, '#ffb02a', 0.6);
+    if (this.target) this.becomeAggro();
+  }
+
+  private revive(pos: Vector3, yaw: number): void {
+    this.asleep = false;
     this.dead = false;
     this.defeated = false;
     this.hp = this.maxHp;
@@ -157,12 +202,20 @@ export class Enemy extends Character implements CriticalVictim {
     this.perception.awareness = 0;
     this.perception.hasLastKnown = false;
     this.cooldowns.clear();
-    this.motor.teleport(this.spawn.position.x, this.spawn.position.y, this.spawn.position.z);
-    this.facing = this.spawn.yaw;
-    this.model.rotation.y = this.spawn.yaw;
+    this.counterCooldown = 0;
+    this.summonPending = false;
+    this.damageBuff = 1;
+    if (this.tempo !== 1 || this.rigLook !== this.data.appearance) {
+      this.tempo = 1;
+      this.rigLook = this.data.appearance;
+      this.rebuildRig(this.data.appearance);
+    }
+    this.motor.teleport(pos.x, pos.y, pos.z);
+    this.facing = yaw;
+    this.model.rotation.y = yaw;
     this.dissolve = 0;
     this.model.visible = true;
-    this.model.position.y = this.spawn.position.y;
+    this.model.position.y = pos.y;
     this.cape?.reset();
     this.cape?.setVisible(true);
     this.director.release(this);
@@ -216,6 +269,7 @@ export class Enemy extends Character implements CriticalVictim {
     for (const [k, v] of this.cooldowns) this.cooldowns.set(k, v - dt);
     if (this.reactCooldown > 0) this.reactCooldown -= dt;
     if (this.retreatCooldown > 0) this.retreatCooldown -= dt;
+    if (this.counterCooldown > 0) this.counterCooldown -= dt;
 
     if (this.dead) {
       this.updateDead(dt);
@@ -241,6 +295,11 @@ export class Enemy extends Character implements CriticalVictim {
     // Phase transition for elites.
     if (this.data.combat.phase2Attacks && this.phase === 1 && this.hp <= this.maxHp * 0.5 && this.state !== 'attack' && this.state !== 'stagger' && this.state !== 'critVictim') {
       this.enterPhaseShift();
+    }
+
+    if (this.phase === 2 && this.data.phase2 && Math.random() < dt * 30) {
+      const c = this.centerPoint(this.tmp);
+      this.ctx.vfx.sparks.burst(c, { count: 2, color: this.data.phase2.aura, color2: '#1a0628', speed: 0.9, life: 1.0, size: 0.16, gravity: -2.2, drag: 0.8, radius: 0.9 * this.rig.scale });
     }
 
     switch (this.state) {
@@ -277,6 +336,9 @@ export class Enemy extends Character implements CriticalVictim {
       case 'phaseShift':
         this.updatePhaseShift();
         break;
+      case 'summon':
+        this.updateSummon();
+        break;
       case 'critVictim':
         if (this.stateTime >= 3.0) {
           this.invulnerable = false;
@@ -296,6 +358,7 @@ export class Enemy extends Character implements CriticalVictim {
     this.aggroTime = 0;
     this.alertDelay = -1;
     this.perception.awareness = 1.2;
+    this.perception.timeSinceSeen = 0;
     if (this.state === 'idle' || this.state === 'patrol' || this.state === 'investigate' || this.state === 'return') {
       this.enter(this.distanceTo(this.target) > this.data.combat.preferredRange[1] + 1 ? 'chase' : 'defend');
     }
@@ -333,6 +396,7 @@ export class Enemy extends Character implements CriticalVictim {
   }
 
   private moveTowardsYaw(yaw: number, speed: number, dt: number, face = true): void {
+    speed *= this.tempo;
     this.speed += clamp(speed - this.speed, -10 * dt, 8 * dt);
     let vx = Math.sin(yaw) * this.speed;
     let vz = Math.cos(yaw) * this.speed;
@@ -431,7 +495,7 @@ export class Enemy extends Character implements CriticalVictim {
     }
     const dist = this.distanceTo(t);
     // Leash: never chase too far from home.
-    if (this.position.distanceTo(this.spawn.position) > 32) {
+    if (this.position.distanceTo(this.spawn.position) > (this.isBoss ? 48 : 32)) {
       this.loseAggro();
       this.enter('return');
       return;
@@ -519,7 +583,8 @@ export class Enemy extends Character implements CriticalVictim {
         dist <= o.maxRange * (this.isBoss ? 1 : 1) &&
         (this.cooldowns.get(o.id) ?? 0) <= 0 &&
         angle < (gapCloserOnly ? 0.6 : 1.1) &&
-        (!gapCloserOnly || o.minRange > 2),
+        (!gapCloserOnly || o.minRange > 2) &&
+        (o.special !== 'summon' || this.canSummon()),
     );
     if (!candidates.length) return false;
     if (!this.director.request(this, this.data.combat.tokenCost)) return false;
@@ -534,8 +599,60 @@ export class Enemy extends Character implements CriticalVictim {
         break;
       }
     }
+    if (pick.special === 'summon') {
+      this.cooldowns.set(pick.id, pick.cooldown);
+      this.enter('summon');
+      this.summonPending = true;
+      this.hyperArmor = true;
+      this.animator.play(this.clips.castSkyward, 0.2, 0.7);
+      return true;
+    }
     this.startAttack(pick, pick.id);
     return true;
+  }
+
+  private canSummon(): boolean {
+    if (!this.data.summon || !this.summonHook) return false;
+    if (this.phase === 1 && this.hp > this.maxHp * 0.8) return false;
+    return this.summonHook.available(this);
+  }
+
+  private updateSummon(): void {
+    this.hyperArmor = true;
+    if (this.stateTime < 1.0 && Math.random() < 0.6) {
+      const c = this.centerPoint(this.tmp);
+      c.y += 0.8 * this.rig.scale;
+      this.ctx.vfx.sparks.burst(c, { count: 3, color: '#ffb02a', color2: '#ffffff', speed: 2.5, life: 0.6, size: 0.12, gravity: -2, drag: 1, radius: 0.4 });
+    }
+    if (this.summonPending && this.stateTime >= 1.0) {
+      this.summonPending = false;
+      this.ctx.vfx.shockwave(this.position, 3.2, '#ffb02a');
+      this.ctx.camera.shake.add(0.35);
+      this.summonHook?.raise(this);
+    }
+    if (this.stateTime >= 2.0) {
+      this.hyperArmor = false;
+      this.director.release(this);
+      this.enter('defend');
+    }
+  }
+
+  /** Bosses strike back when their guard is tested (poise held, not mid-attack). */
+  override onStruck(attacker: Character | null): void {
+    const c = this.data.counter;
+    if (!c || this.dead || !attacker || attacker !== this.target) return;
+    if (this.counterCooldown > 0 || (this.state !== 'defend' && this.state !== 'chase')) return;
+    if (!chance(this.phase === 2 ? c.chance + 0.15 : c.chance)) return;
+    this.counterCooldown = c.cooldown;
+    this.director.release(this);
+    this.faceTowards(attacker.position);
+    this.startAttack({ id: c.attack, minRange: 0, maxRange: 5, weight: 1, cooldown: 0, chainChance: 0 }, c.attack);
+  }
+
+  /** Test / scripting hook: perform a specific attack now (no chaining). */
+  forceAttack(id: string): void {
+    this.director.release(this);
+    this.startAttack({ id, minRange: 0, maxRange: 99, weight: 1, cooldown: 0, chainChance: 0 }, id);
   }
 
   private startAttack(option: EnemyAttackOption, attackId: string): void {
@@ -544,7 +661,7 @@ export class Enemy extends Character implements CriticalVictim {
     this.option = option;
     this.speed = 0;
     this.ctx.combat.begin(this, data);
-    this.animator.play(attackClip(data, this.stance), 0.1, this.phase === 2 ? 1.08 : 1);
+    this.animator.play(attackClip(data, this.stance), 0.1, this.tempo);
     this.cooldowns.set(option.id, option.cooldown * randRange(0.8, 1.3));
   }
 
@@ -557,7 +674,7 @@ export class Enemy extends Character implements CriticalVictim {
     }
     const d = atk.data;
     const prev = atk.time;
-    atk.time += dt * (this.phase === 2 ? 1.08 : 1);
+    atk.time += dt * this.tempo;
     const t = atk.time;
     this.hyperArmor = !!d.hyperArmor && t >= d.startup * 0.3 && t <= d.startup + d.active;
     if (t < d.startup) this.faceTarget(dt, d.tracking);
@@ -635,10 +752,26 @@ export class Enemy extends Character implements CriticalVictim {
 
   private enterPhaseShift(): void {
     this.phase = 2;
+    this.cooldowns.clear();
     this.roar();
     this.ctx.events.emit('bossPhase', { boss: this, phase: 2 });
-    this.setRuneColor('#b05cff');
-    this.damageBuff = 1.15;
+    const p2 = this.data.phase2;
+    if (p2) {
+      // The armour bursts: shards fly, the model is rebuilt in its broken form.
+      const c = this.centerPoint(this.tmp);
+      this.ctx.vfx.sparks.burst(c, { count: 70, color: this.data.appearance.palette.trim, color2: '#9a9098', speed: 7, life: 1.1, size: 0.14, gravity: 9, drag: 0.6, spread: 2.5, radius: 0.6 });
+      this.ctx.vfx.flash(c, p2.aura, 4, 0.35);
+      this.tempo = p2.speed;
+      this.rigLook = p2.appearance;
+      this.rebuildRig(p2.appearance);
+      this.animator.play(this.clips.castSkyward, 0.05, 0.6);
+      this.setRuneColor(p2.aura);
+      this.damageBuff = 1.12;
+    } else {
+      this.tempo = 1.08;
+      this.setRuneColor('#b05cff');
+      this.damageBuff = 1.15;
+    }
   }
 
   /** Invulnerable roar used for the boss introduction and the phase transition. */

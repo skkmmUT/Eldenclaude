@@ -92,7 +92,9 @@ describe('data integrity', () => {
   it('every moveset and enemy attack references existing attacks', () => {
     for (const w of Object.values(WEAPONS)) for (const id of Object.values(w.moveset)) expect(ATTACKS[id], `${w.id}.${id}`).toBeDefined();
     for (const e of Object.values(ENEMIES)) {
-      for (const o of [...e.combat.attacks, ...(e.combat.phase2Attacks ?? [])]) expect(ATTACKS[o.id], o.id).toBeDefined();
+      for (const o of [...e.combat.attacks, ...(e.combat.phase2Attacks ?? [])]) if (!o.special) expect(ATTACKS[o.id], o.id).toBeDefined();
+      if (e.counter) expect(ATTACKS[e.counter.attack], e.counter.attack).toBeDefined();
+      if (e.summon) expect(ENEMIES[e.summon.type], e.summon.type).toBeDefined();
     }
     for (const a of Object.values(ATTACKS)) if (a.next) expect(ATTACKS[a.next], a.next).toBeDefined();
   });

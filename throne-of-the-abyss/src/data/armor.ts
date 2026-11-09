@@ -99,4 +99,9 @@ export const ACCESSORIES: Record<string, AccessoryData> = {
     description: 'Maximum health +8%; slowly restores health.', lore: 'Carved from a twig of the Elder Bough. It still grows a single leaf every spring.',
     mods: { maxHpMul: 1.08, hpRegen: 1.2 },
   },
+  kings_seal: {
+    id: 'kings_seal', name: 'Seal of the Ashen Throne', slot: 'amulet', weight: 0.8, glyph: '#ffb02a',
+    description: 'All damage +10%; poise +10.', lore: 'The royal seal, cracked through the middle. Whoever presses it into wax decrees nothing any more; the wax decrees for them.',
+    mods: { damageMul: 1.1, poise: 10 },
+  },
 };

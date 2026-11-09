@@ -125,6 +125,36 @@ export const WEAPONS: Record<string, WeaponData> = {
   },
 };
 
+/** The Fallen King's blade: wielded by the boss, granted to the player when he falls. */
+WEAPONS.kings_greatblade = {
+  id: 'kings_greatblade',
+  name: 'Greatblade of the Fallen King',
+  category: 'greatsword',
+  description: 'A vast gilded greatsword whose fuller drips with abyssal light.',
+  lore:
+    'The Ashen Throne was not lost in battle. Its king knelt to the Abyss to keep his people alive one more ' +
+    'winter, and the Abyss took the people instead. The blade remembers the oath; the king forgot it.',
+  weight: 17,
+  base: { physical: 172, dark: 58 },
+  scaling: { strength: 'B', faith: 'D' },
+  requirements: { strength: 20, faith: 12 },
+  guard: { physical: 0.86, fire: 0.5, ice: 0.5, lightning: 0.45, holy: 0.4, dark: 0.7, arcane: 0.45 },
+  guardBoost: 0.8,
+  critical: 1.0,
+  moveset: GS_MOVES,
+  art: { name: 'Kingsfall', description: 'Bring the blade down with the weight of a fallen crown: a wide shockwave of abyssal force.', mana: 20, kind: 'attack', attack: 'gs_art_kingsfall' },
+  visual: {
+    shape: 'gravecleaver',
+    bladeLength: 1.6,
+    bladeWidth: 0.15,
+    gripLength: 0.38,
+    bladeColor: '#a89a7c',
+    hiltColor: '#d8a83c',
+    gripColor: '#1a0c10',
+    runeColor: '#ffb02a',
+  },
+};
+
 const LIGHT_COMMON = { running: 'ss_running', roll: 'ss_roll', jump: 'ss_jump', plunge: 'ss_plunge' };
 const HEAVY_COMMON = { running: 'gs_running', roll: 'gs_roll', jump: 'ss_jump', plunge: 'ss_plunge' };
 const ALL = (v: number) => ({ physical: v, fire: v * 0.5, ice: v * 0.5, lightning: v * 0.45, holy: v * 0.45, dark: v * 0.5, arcane: v * 0.45 });

@@ -176,6 +176,10 @@ try {
   const melee = await ev(() => {
     T.heal();
     const e = g.enemies.find((x) => x.spawn.id === 'rev_gate');
+    // Start from an unaware foe: earlier movement tests can alert it, and its random
+    // guard/dodge reflexes would make this check flaky.
+    e.reset();
+    e.setPlayer(g.player);
     T.place(e.position.x - 1.9, 0, e.position.z, Math.PI / 2);
     T.face(e.position);
     const hp0 = e.hp;
@@ -665,6 +669,214 @@ try {
   await shot('10_equipment');
   await ev(() => g.menus.closeAll());
 
+  // --- Region boss: The Fallen King ---------------------------------------------------------------
+  const hallEntry = await ev(() => {
+    T.heal();
+    g.player.lockTarget = null;
+    const king = g.king;
+    T.place(0, 2.1, 62, 0);
+    g.input.simulate('KeyW', true);
+    let sawIntro = false;
+    for (let i = 0; i < 60 * 4; i++) {
+      g.step(1 / 60, false);
+      if (g.cinematic) sawIntro = true;
+      if (g.player.position.z > 70) break;
+    }
+    g.input.simulate('KeyW', false);
+    g.simulate(5);
+    const sealed = g.level.hall.barrier.sealed;
+    // Try to leave: the mist barrier holds.
+    king.setPlayer(null);
+    T.place(0, 2.1, 68, Math.PI);
+    g.input.simulate('KeyW', true);
+    g.simulate(2);
+    g.input.simulate('KeyW', false);
+    const zAfter = g.player.position.z;
+    king.setPlayer(g.player);
+    return { aggro: king.aggro, sawIntro, sealed, zAfter, boss: g.hud.boss === king, altarHidden: !g.level.hall.altar.group.visible };
+  });
+  check('entering the Throne Hall wakes the Fallen King (intro scene, boss bar)', hallEntry.aggro && hallEntry.sawIntro && hallEntry.boss, JSON.stringify(hallEntry));
+  check('mist barrier seals the hall during the fight', hallEntry.sealed && hallEntry.zAfter > 66.5, JSON.stringify(hallEntry));
+  check('throne altar stays dormant while the king lives', hallEntry.altarHidden);
+
+  const dodgeRun = async (ids, phase) => ev(({ ids, phase }) => {
+    const king = g.king;
+    const out = {};
+    for (const id of ids) {
+      for (const k of g.kingKnights) if (!k.dead) k.reset();
+      king.stamina = king.maxStamina;
+      T.heal();
+      king.motor.teleport(0, 2, 86);
+      king.facing = Math.PI;
+      T.place(0, 2.1, 86 - 2.8, 0);
+      g.simulate(0.05);
+      king.faceTowards(g.player.position);
+      king.forceAttack(id);
+      const d = king.attack.data;
+      const dodge = phase.dodge;
+      let rolled = false;
+      let hp0 = g.player.hp;
+      let warned = 0;
+      for (let i = 0; i < 60 * 4 && king.attack && king.attack.data.id === id; i++) {
+        if (dodge && !rolled && king.attack.time >= d.startup - 0.12 * phase.tempo) {
+          rolled = true;
+          hp0 = g.player.hp;
+          g.input.simulate('KeyD', true);
+          T.press('ShiftLeft', 3);
+        }
+        warned = Math.max(warned, g.vfx.activeWarnings);
+        g.step(1 / 60, false);
+        if (king.attack && king.attack.time > d.startup + d.active + 0.05) break;
+      }
+      g.input.simulate('KeyD', false);
+      out[id] = { dmg: Math.round(hp0 - g.player.hp), warned, rolled };
+      g.simulate(0.6);
+    }
+    return out;
+  }, { ids, phase });
+
+  const p1Ids = ['fk_sweep', 'fk_backhand', 'fk_overhead', 'fk_slam', 'fk_thrust', 'fk_counter'];
+  const p1Hit = await dodgeRun(['fk_sweep', 'fk_slam'], { dodge: false, tempo: 1 });
+  check('control: standing still, the king\'s attacks connect', p1Hit.fk_sweep.dmg > 0 && p1Hit.fk_slam.dmg > 0, JSON.stringify(p1Hit));
+  const p1 = await dodgeRun(p1Ids, { dodge: true, tempo: 1 });
+  check('every phase-one attack can be dodged with a timed roll', Object.values(p1).every((r) => r.rolled && r.dmg === 0), JSON.stringify(p1));
+  check('area attacks mark their zone on the ground during the wind-up', p1.fk_slam.warned >= 1 && p1.fk_overhead.warned >= 1, JSON.stringify({ slam: p1.fk_slam, overhead: p1.fk_overhead }));
+
+  const reach = await ev(() => {
+    const king = g.king;
+    const opts = king.data.combat.attacks.filter((o) => !o.special);
+    const misses = [];
+    for (const o of opts) {
+      T.heal();
+      g.player.invulnerable = false;
+      king.motor.teleport(0, 2, 86);
+      king.attack = null;
+      king.state = 'defend';
+      king.facing = Math.PI;
+      T.place(0, 2.1, 86 - o.maxRange, 0);
+      g.simulate(0.05);
+      king.faceTowards(g.player.position);
+      const hp0 = g.player.hp;
+      king.forceAttack(o.id);
+      const d = king.attack.data;
+      while (king.attack && king.attack.data.id === o.id && king.attack.time < d.startup + d.active + 0.1) g.step(1 / 60, false);
+      if (!(hp0 - g.player.hp > 0)) misses.push(o.id);
+      king.attack = null;
+      king.state = 'defend';
+      king.setPlayer(null);
+      g.simulate(0.2);
+      T.idle(5);
+      g.simulate(0.3);
+      king.setPlayer(g.player);
+    }
+    return { tested: opts.length, misses };
+  });
+  check('each of the king\'s attacks reaches the range the AI uses it from', reach.misses.length === 0, JSON.stringify(reach));
+
+  const counter = await ev(() => {
+    const king = g.king;
+    const c = king.data.counter;
+    const saved = c.chance;
+    c.chance = 1;
+    T.heal();
+    king.motor.teleport(0, 2, 86);
+    T.place(0, 2.1, 84.2, 0);
+    king.attack = null;
+    king.state = 'defend';
+    king.stateTime = 0;
+    king.counterCooldown = 0;
+    king.faceTowards(g.player.position);
+    T.face(king.position);
+    T.press('KeyJ');
+    let id = null;
+    for (let i = 0; i < 60 && !id; i++) {
+      g.step(1 / 60, false);
+      if (king.attack) id = king.attack.data.id;
+    }
+    c.chance = saved;
+    T.idle();
+    g.simulate(1.5);
+    return id;
+  });
+  check('the king counter-attacks when struck with his guard up', counter === 'fk_counter', String(counter));
+
+  const summon = await ev(() => {
+    const king = g.king;
+    for (const k of g.kingKnights) if (!k.dead) k.reset();
+    g.kingSummons = 0;
+    king.hp = king.maxHp * 0.7;
+    king.motor.teleport(0, 2, 86);
+    let raised = false;
+    for (let t = 0; t < 40 && !raised; t += 0.5) {
+      T.heal();
+      g.player.invulnerable = true;
+      if (g.player.position.distanceTo(king.position) > 8) T.place(0, 2.1, 80, 0);
+      g.simulate(0.5);
+      raised = g.kingKnights.every((k) => !k.dead && !k.asleep);
+    }
+    g.player.invulnerable = false;
+    const knights = g.kingKnights.map((k) => ({ aggro: k.aggro, y: +k.position.y.toFixed(2) }));
+    for (const k of g.kingKnights) k.reset();
+    return { raised, knights };
+  });
+  check('the king raises two fallen knights in battle', summon.raised && summon.knights.every((k) => k.aggro && Math.abs(k.y - 2) < 0.3), JSON.stringify(summon));
+
+  const phase2 = await ev(() => {
+    const king = g.king;
+    const rig0 = king.rig;
+    T.heal();
+    T.place(0, 2.1, 78, 0);
+    king.hp = king.maxHp * 0.45;
+    king.attack = null;
+    king.state = 'defend';
+    let t = 0;
+    while (king.phase !== 2 && t < 6) {
+      g.simulate(0.1);
+      t += 0.1;
+    }
+    g.simulate(2.2);
+    return { phase: king.phase, rebuilt: king.rig !== rig0, tempo: king.tempo, helmetGone: king.rigLook.helmet === 'none' };
+  });
+  check('phase two: the armour shatters (model rebuilt) and tempo rises', phase2.phase === 2 && phase2.rebuilt && phase2.helmetGone && phase2.tempo > 1.1, JSON.stringify(phase2));
+
+  const p2Ids = ['fk2_sweep', 'fk2_backhand', 'fk2_finisher', 'fk2_leap', 'fk2_delay', 'fk2_slam', 'fk_thrust', 'fk_counter'];
+  const p2 = await dodgeRun(p2Ids, { dodge: true, tempo: 1.22 });
+  check('every phase-two attack can be dodged with a timed roll', Object.values(p2).every((r) => r.rolled && r.dmg === 0), JSON.stringify(p2));
+
+  const victory = await ev(() => {
+    const king = g.king;
+    T.heal();
+    T.place(0, 2.1, 82, 0);
+    king.motor.teleport(0, 2, 86);
+    king.attack = null;
+    king.state = 'defend';
+    king.invulnerable = false;
+    king.hp = 5;
+    T.face(king.position);
+    king.faceTowards(g.player.position);
+    const dir = new V(0, 0, 1);
+    g.combat.resolve(g.player, king, { source: g.player.weapon, motionValue: 1, poiseDamage: 0, reaction: 'flinch', parryable: false, guardDamage: 0, knockback: 0, hitStop: 0, shake: 0 }, king.centerPoint(new V()), dir);
+    const cine = !!g.cinematic;
+    g.simulate(6);
+    const inv = g.player.inventory;
+    T.place(0, 3.1, 97.2, 0);
+    g.simulate(0.3);
+    return {
+      dead: king.dead,
+      cine,
+      unsealed: !g.level.hall.barrier.sealed,
+      altarVisible: g.level.hall.altar.group.visible,
+      altarPrompt: g.player.focusPrompt,
+      blade: inv.weapons.includes('kings_greatblade'),
+      seal: inv.accessories.includes('kings_seal'),
+      objective: g.journal().objectives.at(-1).done,
+    };
+  });
+  check('defeating the Fallen King plays the victory scene and lifts the barrier', victory.dead && victory.cine && victory.unsealed, JSON.stringify(victory));
+  check('victory reward: the king\'s greatblade and seal', victory.blade && victory.seal, JSON.stringify(victory));
+  check('the Ashen Throne altar wakes after the king falls', victory.altarVisible && /Kindle/.test(victory.altarPrompt ?? '') && victory.objective, JSON.stringify(victory));
+  await shot('11_throne_hall');
+
   // --- Save, reload, continue ---------------------------------------------------------------------
   const saved = await ev(() => {
     g.player.progress.echoes = 4321;
@@ -677,10 +889,10 @@ try {
     g.continueGame();
     g.simulate(0.5);
     const k = g.enemies.find((x) => x.spawn.id === 'elite_vaelor');
-    return { title, echoes: g.player.progress.echoes, kindled: g.level.altars[0].kindled, eliteDead: k.dead, gate: g.level.gate.open, level: g.player.progress.level };
+    return { title, echoes: g.player.progress.echoes, kindled: g.level.altars[0].kindled, eliteDead: k.dead, gate: g.level.gate.open, level: g.player.progress.level, kingDead: g.king.dead, throneAltar: g.level.hall.altar.group.visible };
   });
   check('title screen on fresh load', loaded.title === 'title');
-  check('continue restores progress', loaded.echoes === 4321 && loaded.kindled && loaded.eliteDead && loaded.gate, JSON.stringify(loaded));
+  check('continue restores progress', loaded.echoes === 4321 && loaded.kindled && loaded.eliteDead && loaded.gate && loaded.kingDead && loaded.throneAltar, JSON.stringify(loaded));
 
   // --- Pause menu & graphics presets ----------------------------------------------------------------
   await ev(() => {

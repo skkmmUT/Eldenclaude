@@ -1,5 +1,6 @@
 import {
   AdditiveBlending,
+  CircleGeometry,
   Mesh,
   MeshBasicMaterial,
   NormalBlending,
@@ -26,6 +27,13 @@ interface Ring {
   max: number;
   radius: number;
 }
+interface Warning {
+  disc: Mesh;
+  edge: Mesh;
+  life: number;
+  max: number;
+  radius: number;
+}
 interface LightFlash {
   light: PointLight;
   life: number;
@@ -40,6 +48,7 @@ export class VFXManager {
   private flashes: Flash[] = [];
   private rings: Ring[] = [];
   private lights: LightFlash[] = [];
+  private warnings: Warning[] = [];
   private readonly up = new Vector3(0, 1, 0);
   private readonly tmp = new Vector3();
 
@@ -64,6 +73,24 @@ export class VFXManager {
       mesh.renderOrder = 12;
       scene.add(mesh);
       this.rings.push({ mesh, life: 0, max: 1, radius: 1 });
+    }
+    // Ground danger zones: a faint disc that fills toward its edge until impact.
+    for (let i = 0; i < 4; i++) {
+      const disc = new Mesh(
+        new CircleGeometry(1, 48),
+        new MeshBasicMaterial({ color: '#ff2a3a', transparent: true, blending: AdditiveBlending, depthWrite: false, opacity: 0 }),
+      );
+      const edge = new Mesh(
+        new RingGeometry(0.93, 1, 64),
+        new MeshBasicMaterial({ color: '#ff2a3a', transparent: true, blending: AdditiveBlending, depthWrite: false, opacity: 0 }),
+      );
+      for (const m of [disc, edge]) {
+        m.rotation.x = -Math.PI / 2;
+        m.visible = false;
+        m.renderOrder = 11;
+        scene.add(m);
+      }
+      this.warnings.push({ disc, edge, life: 0, max: 1, radius: 1 });
     }
     // Pooled flash lights: always in the scene (intensity 0 when idle) so the light count
     // never changes and shaders never recompile mid-fight.
@@ -100,6 +127,36 @@ export class VFXManager {
     r.life = r.max = life;
     r.radius = radius;
     r.mesh.visible = true;
+  }
+
+  /**
+   * Telegraph for an area attack: marks the exact danger zone on the ground for `life`
+   * seconds (until impact). The inner disc grows to the edge as the hit approaches.
+   */
+  groundWarning(pos: Vector3, radius: number, color: string, life: number): number {
+    const i = Math.max(0, this.warnings.findIndex((x) => x.life <= 0));
+    const w = this.warnings[i];
+    for (const m of [w.disc, w.edge]) {
+      m.position.set(pos.x, pos.y + 0.06, pos.z);
+      (m.material as MeshBasicMaterial).color.set(color);
+      m.visible = true;
+    }
+    w.edge.scale.setScalar(radius);
+    w.life = w.max = Math.max(0.05, life);
+    w.radius = radius;
+    return i;
+  }
+
+  /** Keep a warning on the predicted impact point while the attacker still aims. */
+  moveWarning(i: number, pos: Vector3): void {
+    const w = this.warnings[i];
+    if (!w || w.life <= 0) return;
+    w.disc.position.set(pos.x, pos.y + 0.06, pos.z);
+    w.edge.position.set(pos.x, pos.y + 0.06, pos.z);
+  }
+
+  get activeWarnings(): number {
+    return this.warnings.filter((w) => w.life > 0).length;
   }
 
   light(pos: Vector3, color: string, intensity: number, life = 0.15): void {
@@ -200,6 +257,15 @@ export class VFXManager {
       r.mesh.scale.set(s, s, s);
       (r.mesh.material as MeshBasicMaterial).opacity = (1 - k) * 0.9;
       if (r.life <= 0) r.mesh.visible = false;
+    }
+    for (const w of this.warnings) {
+      if (w.life <= 0) continue;
+      w.life -= dt;
+      const k = 1 - Math.max(0, w.life / w.max);
+      w.disc.scale.setScalar(w.radius * Math.max(0.05, k));
+      (w.disc.material as MeshBasicMaterial).opacity = 0.18 + 0.22 * k;
+      (w.edge.material as MeshBasicMaterial).opacity = 0.55 + 0.35 * Math.sin(k * Math.PI * 6) ** 2;
+      if (w.life <= 0) w.disc.visible = w.edge.visible = false;
     }
     for (const l of this.lights) {
       if (l.life <= 0) {

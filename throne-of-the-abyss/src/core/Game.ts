@@ -95,6 +95,9 @@ export class Game implements MenuHost {
   private slowMoTimer = 0;
   private lastSafePos = new Vector3();
   private gateBannerShown = false;
+  private king!: Enemy;
+  private kingKnights: Enemy[] = [];
+  private kingSummons = 0;
   private titleTime = 0;
   private mapImage: HTMLCanvasElement | undefined;
   private running = false;
@@ -140,6 +143,7 @@ export class Game implements MenuHost {
       this.enemies.push(e);
       this.combat.register(e);
     }
+    this.wireThroneHall();
     this.player.interactables = () => this.interactables();
     this.player.onRestBegin = () => window.setTimeout(() => this.player.isResting && this.menus.showAltar(), 650);
     this.wireLevel();
@@ -178,9 +182,50 @@ export class Game implements MenuHost {
   }
 
   private interactables(): Interactable[] {
-    const list: Interactable[] = [...this.level.altars, ...this.level.chests, ...this.level.pickups];
+    const throne = this.level.hall.altar;
+    const list: Interactable[] = [...this.level.altars.filter((a) => a !== throne || this.throneUnlocked), ...this.level.chests, ...this.level.pickups];
     if (this.lostEchoes) list.push(this.lostEchoes.remnant);
     return list;
+  }
+
+  private get throneUnlocked(): boolean {
+    return this.defeatedBosses.has(this.level.hall.kingSpawn.id);
+  }
+
+  /** Throne Hall rules: the king raises fallen knights; the altar wakes after his fall. */
+  private wireThroneHall(): void {
+    const hall = this.level.hall;
+    this.king = this.enemies.find((e) => e.spawn.id === hall.kingSpawn.id)!;
+    this.kingKnights = this.enemies.filter((e) => hall.knightSpawns.some((k) => k.id === e.spawn.id));
+    this.king.summonHook = {
+      available: (boss) => this.kingSummons < boss.phase && this.kingKnights.every((k) => k.dead),
+      raise: (boss) => {
+        this.kingSummons = boss.phase;
+        const pts = hall.summonPoints(boss.position, boss.facing);
+        this.kingKnights.forEach((k, i) => {
+          k.setPlayer(this.player);
+          k.awaken(pts[i % pts.length], boss.facing);
+        });
+        this.hud.toast('The Fallen King calls his knights', 'Oath-bound dead rise from the floor');
+      },
+    };
+  }
+
+  private refreshThroneAltar(): void {
+    this.level.hall.altar.group.visible = this.throneUnlocked;
+  }
+
+  /** Start the fight when the player steps into the hall; seal the way out behind them. */
+  private updateThroneHall(): void {
+    const hall = this.level.hall;
+    const k = this.king;
+    if (k.dead || this.mode !== 'playing') return;
+    const inside = hall.contains(this.player.position);
+    if (inside && !k.aggro && !this.player.dead) {
+      k.setPlayer(this.player);
+      k.becomeAggro();
+    }
+    if (k.aggro && inside && !hall.barrier.sealed) hall.barrier.setSealed(true);
   }
 
   private wireLevel(): void {
@@ -283,11 +328,15 @@ export class Game implements MenuHost {
       this.hud.setBoss(boss);
       if (!this.bossIntroDone.has(boss.spawn.id)) {
         this.bossIntroDone.add(boss.spawn.id);
-        this.playBossIntro(boss);
+        if (boss === this.king) this.playKingIntro(boss);
+        else this.playBossIntro(boss);
       }
     });
     ev.on('bossPhase', ({ boss }) => {
-      if (boss instanceof Enemy) this.hud.toast(`${boss.data.name.split(',')[0]} awakens the abyss within`, 'The oath-blade burns violet');
+      if (!(boss instanceof Enemy)) return;
+      const p2 = boss.data.phase2;
+      if (p2) this.hud.showBanner(p2.message.toUpperCase(), p2.sub, 'banner', 2.6);
+      else this.hud.toast(`${boss.data.name.split(',')[0]} awakens the abyss within`, 'The oath-blade burns violet');
     });
   }
 
@@ -308,6 +357,8 @@ export class Game implements MenuHost {
     for (const c of this.level.chests) c.setOpened(false);
     for (const p of this.level.pickups) p.setTaken(false);
     this.level.gate.setOpen(false);
+    this.level.hall.barrier.setSealed(false);
+    this.kingSummons = 0;
     this.clearLostEchoes();
     this.player.progress.attributes = { ...new PlayerProgress().attributes };
     this.player.progress.echoes = 0;
@@ -316,6 +367,7 @@ export class Game implements MenuHost {
     this.player.equipWeapon(this.player.inventory.weapon);
     this.player.applyProgress(true);
     this.respawnEnemies(true);
+    this.refreshThroneAltar();
   }
 
   private placePlayerAtStart(kneel: boolean): void {
@@ -331,6 +383,8 @@ export class Game implements MenuHost {
 
   private respawnEnemies(all: boolean): void {
     this.director.clear();
+    this.level.hall.barrier.setSealed(false);
+    this.kingSummons = 0;
     this.projectiles.clear();
     for (const e of this.enemies) {
       if (!all && this.defeatedBosses.has(e.spawn.id)) continue;
@@ -600,14 +654,31 @@ export class Game implements MenuHost {
       this.defeatedBosses.add(e.spawn.id);
       this.slowMoTimer = 1.6;
       this.time.timeScale = 0.35;
-      this.hud.showBanner('OATHKEEPER FELLED', e.data.name, 'victory', 4.5);
+      this.hud.showBanner(e.data.victoryBanner ?? 'FOE FELLED', e.data.name, 'victory', 4.5);
       if (e === this.activeBoss) window.setTimeout(() => this.hud.setBoss(null), 3000);
       this.activeBoss = null;
-      this.level.gate.setOpen(true);
-      window.setTimeout(() => this.hud.toast('The seal upon the Gate of Eternity shatters'), 4200);
+      if (e.data.id === 'gravebound_knight') {
+        this.level.gate.setOpen(true);
+        window.setTimeout(() => this.hud.toast('The seal upon the Gate of Eternity shatters'), 4200);
+      }
+      if (e === this.king) this.onKingDefeated();
       if (e.data.drops?.length) this.grantAll(e.data.drops, 5600);
       this.autosave();
     }
+  }
+
+  private onKingDefeated(): void {
+    const hall = this.level.hall;
+    hall.barrier.setSealed(false);
+    for (const k of this.kingKnights) {
+      if (k.dead) continue;
+      this.vfx.soulRelease(k.centerPoint(new Vector3()), '#ffb02a', 50);
+      k.reset();
+    }
+    this.refreshThroneAltar();
+    this.vfx.soulRelease(hall.altar.position.clone().setY(hall.altar.position.y + 1.5), '#b46bff', 120);
+    this.playVictory(this.king);
+    window.setTimeout(() => this.hud.toast('The Ashen Throne stands empty', 'A Sigil Altar wakes before it'), 4600);
   }
 
   // ===================================================================================
@@ -636,6 +707,55 @@ export class Game implements MenuHost {
         this.player.inputLocked = false;
         this.camera.snapBehind(this.player.facing);
         this.hud.toast('Esc — menu, controls & settings');
+      },
+    };
+  }
+
+  /** The king, kneeling before his throne, rises as the camera sweeps down the nave. */
+  private playKingIntro(boss: Enemy): void {
+    const p0 = this.player.position.clone();
+    const target = boss.position.clone().setY(boss.position.y + boss.hurtHeight * 0.6);
+    boss.faceTowards(this.player.position);
+    boss.roar();
+    this.player.inputLocked = true;
+    this.player.lockTarget = boss;
+    const from = new Vector3(p0.x - 2.5, p0.y + 3.4, p0.z - 5);
+    const to = new Vector3();
+    this.cinematic = {
+      time: 0,
+      duration: 4.2,
+      skippable: true,
+      update: (t, o) => {
+        const k = Math.min(1, t / 3.4);
+        const e = k * k * (3 - 2 * k);
+        const ang = boss.facing + 0.65 - e * 0.5;
+        to.set(boss.position.x + Math.sin(ang) * 6.5, boss.position.y + 1.8, boss.position.z + Math.cos(ang) * 6.5);
+        o.position.copy(from).lerp(to, e);
+        o.lookAt.copy(target);
+        if (t > 1.8 && t - 1 / 60 <= 1.8) this.hud.showBanner(boss.data.name.toUpperCase(), boss.data.bossTitle ?? '', 'banner', 2.4);
+      },
+      onEnd: () => {
+        this.player.inputLocked = false;
+      },
+    };
+  }
+
+  /** Slow orbit around the fallen boss while the victory banner plays. */
+  private playVictory(boss: Enemy): void {
+    const c = boss.position.clone();
+    const a0 = boss.facing + 1.2;
+    this.player.inputLocked = true;
+    this.cinematic = {
+      time: 0,
+      duration: 4.6,
+      skippable: true,
+      update: (t, o) => {
+        const a = a0 + t * 0.32;
+        o.position.set(c.x + Math.sin(a) * 7.5, c.y + 2.6 + t * 0.25, c.z + Math.cos(a) * 7.5);
+        o.lookAt.set(c.x, c.y + 1.1, c.z);
+      },
+      onEnd: () => {
+        this.player.inputLocked = false;
       },
     };
   }
@@ -740,6 +860,7 @@ export class Game implements MenuHost {
       this.bossIntroDone.add(id);
     });
     this.level.gate.setOpen(d.world.gateOpen);
+    this.refreshThroneAltar();
     if (typeof d.world.timeOfDay === 'number') this.env.time.set(d.world.timeOfDay);
     if (d.world.weather) this.env.weather.set(d.world.weather as WeatherKind, true);
     this.lastAltar = this.level.altars.find((a) => a.id === d.player.lastAltar) ?? null;
@@ -822,6 +943,7 @@ export class Game implements MenuHost {
         { text: 'Search the collapsed cloister to the west', done: chest },
         { text: 'Defeat Vaelor, the Gravebound, upon the cathedral steps', done: boss },
         { text: 'Pass through the Gate of Eternity', done: this.gateBannerShown },
+        { text: 'Face the Fallen King in the Throne Hall', done: this.throneUnlocked },
       ],
       lore: [...this.readLore].map((id) => LORE[id]),
     };
@@ -871,12 +993,13 @@ export class Game implements MenuHost {
 
     if (dt > 0) {
       this.player.update(dt);
-      for (const e of this.enemies) if (!e.isDefeatedPermanently || e.stateTime < 6) e.update(dt);
+      for (const e of this.enemies) if (!e.asleep && (!e.isDefeatedPermanently || e.stateTime < 6)) e.update(dt);
       this.combat.update();
       this.projectiles.update(dt);
       this.checkBreakables();
       if (this.player.motor.grounded && !this.player.dead) this.lastSafePos.copy(this.player.position);
       this.checkGateThreshold();
+      this.updateThroneHall();
     }
 
     if (this.mode === 'dead') {
@@ -942,7 +1065,7 @@ export class Game implements MenuHost {
     if (!this.level.gate.open || this.gateBannerShown) return;
     if (this.player.position.z > 50.5 && Math.abs(this.player.position.x) < 6) {
       this.gateBannerShown = true;
-      this.hud.showBanner('THE GATE OF ETERNITY', 'Beyond lies the Cathedral of Eternity', 'area', 4);
+      this.hud.showBanner('THE GATE OF ETERNITY', 'The Throne Hall of the Ashen King lies ahead', 'area', 4);
       this.autosave();
     }
   }

@@ -31,6 +31,8 @@ export interface AttackInstance {
   /** For jump/plunge: active window held open until landing. */
   holdActive: boolean;
   telegraphed: boolean;
+  /** Ground-warning handle for area attacks (−1 = none yet). */
+  zone: number;
 }
 
 export interface CharacterConfig {
@@ -489,6 +491,11 @@ export abstract class Character {
     this.ctx.scene.remove(this.model);
     this.ctx.scene.remove(this.trail.mesh);
     if (this.cape) this.ctx.scene.remove(this.cape.mesh);
+  }
+
+  /** Hook: struck by a hit that did not break poise (bosses may counter). */
+  onStruck(_attacker: Character | null): void {
+    void _attacker;
   }
 
   setVisible(v: boolean): void {

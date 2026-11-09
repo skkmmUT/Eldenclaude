@@ -95,6 +95,7 @@ export class CombatSystem {
       chargeMul,
       holdActive: false,
       telegraphed: false,
+      zone: -1,
     };
     c.attack = inst;
     c.trail.setColor(data.trail ?? '#d9c9ff');
@@ -115,6 +116,12 @@ export class CombatSystem {
       const isActive = (atk.time >= activeStart && atk.time < activeEnd) || atk.holdActive;
       c.trail.emitting = !!d.trail && (isActive || (atk.time >= activeStart - 0.03 && atk.time < activeEnd + 0.04));
 
+      // Area attacks mark their danger zone on the ground for the whole wind-up.
+      if (d.shockwave && c.faction === 'enemy' && atk.time < d.startup) {
+        const zone = this.impactPoint(c, d);
+        if (atk.zone < 0) atk.zone = this.ctx.vfx.groundWarning(zone, d.shockwave.radius, d.telegraph ?? '#ff2a3a', d.startup - atk.time);
+        else this.ctx.vfx.moveWarning(atk.zone, zone);
+      }
       if (d.telegraph && !atk.telegraphed && atk.time >= d.startup - 0.32) {
         atk.telegraphed = true;
         this.ctx.vfx.glint(c.weaponTip, d.telegraph);
@@ -128,6 +135,19 @@ export class CombatSystem {
       }
       this.sweep(c, atk);
     }
+  }
+
+  /**
+   * Where an area attack will land: in front of the attacker, after the lunge, which
+   * stops short of the nearest opponent (mirrors the enemy lunge rule).
+   */
+  impactPoint(c: Character, d: AttackData, out = this.b): Vector3 {
+    let lunge = d.lunge;
+    let nearest = Infinity;
+    for (const o of this.opponents(c)) nearest = Math.min(nearest, c.distanceTo(o));
+    if (nearest < Infinity) lunge = Math.max(0, Math.min(lunge, nearest - c.motor.radius - 0.9));
+    const f = d.shockwave!.forward + lunge;
+    return out.set(c.position.x + Math.sin(c.facing) * f, c.position.y, c.position.z + Math.cos(c.facing) * f);
   }
 
   private opponents(c: Character): Character[] {
@@ -328,6 +348,7 @@ export class CombatSystem {
         target.addFlinch(heavy ? 0.9 : 0.55, side > 0);
       }
       target.push.addScaledVector(dir, h.knockback * (reaction === 'knockdown' ? 9 : reaction === 'stagger' ? 5 : 3));
+      if (reaction === 'none') target.onStruck(attacker);
     }
     const type = dominantType(result.perType);
     this.ctx.vfx.hitImpact(point, type, dir, heavy, result.critical);

@@ -21,6 +21,7 @@ import { buildOverworld, type OverworldInstance } from '../regions/Overworld';
 import { Fire } from '../Fire';
 import { SigilAltar } from '../SigilAltar';
 import { Chest } from '../Chest';
+import { buildThroneHall, type ThroneHall } from './ThroneHall';
 import type { ItemGrant } from '@/items/Grants';
 
 const GRANT_COLORS: Record<ItemGrant['type'], string> = { weapon: '#ffe0a8', armor: '#d8d0c0', accessory: '#ffd27a', spell: '#b48aff' };
@@ -68,6 +69,7 @@ export interface LevelInstance {
   atmosphere: Atmosphere;
   overworld: OverworldInstance;
   gate: GateState;
+  hall: ThroneHall;
   update(dt: number, cameraPos: Vector3, env: { night: number; wind: number }): void;
   /** Re-apply the light budget when graphics settings change. */
   applyLightBudget(maxLights: number): void;
@@ -178,12 +180,9 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
       leaves[1].rotation.y = gateAngle;
     },
   };
-  // Inner nave stub behind the door (so the opening reads as depth)
-  batch.add(rbox(10.6, 15, 0.4), surfaceMaterial({ color: '#05030a', rim: 0 }), mat4(0, landingY + 7.5, 60), false, false);
+  // Behind the door: the vestibule and the Throne Hall (region boss arena).
   solidBox(b, 0, landingY / 2, 55, 6, landingY / 2, 6.5, mats.stoneDark, false);
-  world.addBox(-6, landingY, 60, 6, 20, 61);
-  world.addBox(-6.5, landingY, 50, -5.5, 20, 61);
-  world.addBox(5.5, landingY, 50, 6.5, 20, 61);
+  const hall = buildThroneHall(b, ctx, landingY);
 
   // ---------------------------------------------------------------------------------
   // Central ring of piers + the Fallen King's statue
@@ -353,7 +352,7 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
   });
 
   // Braziers (ordered by lighting priority; the altar flames come first)
-  const fires: Fire[] = [altar.fire, altar2.fire];
+  const fires: Fire[] = [altar.fire, altar2.fire, ...hall.fires];
   const brazierSpots: Array<[number, number, number, string, string]> = [
     [-11, landingY, 39.5, '#ff5a2a', '#ffd27a'],
     [11, landingY, 44.5, '#ff5a2a', '#ffd27a'],
@@ -370,10 +369,21 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
     scene.add(f.group);
     fires.push(f);
   }
+  // Point-light budget: the nearest fires to the camera keep their lights. The set of
+  // lights never changes (only visibility), so shaders do not recompile.
+  let lightBudget = ctx.profile.maxPointLights;
+  let budgetTimer = 0;
+  const lastCam = new Vector3(0, 0, -37);
+  const firePos = new Vector3();
+  const rankLights = () => {
+    const d = new Map<Fire, number>();
+    for (const f of fires) if (f.light) d.set(f, f.group.getWorldPosition(firePos).distanceToSquared(lastCam));
+    const ranked = [...d.keys()].sort((a, b2) => d.get(a)! - d.get(b2)!);
+    ranked.forEach((f, i) => (f.light!.visible = i < lightBudget));
+  };
   const applyLightBudget = (max: number) => {
-    fires.forEach((f, i) => {
-      if (f.light) f.light.visible = i < max;
-    });
+    lightBudget = max;
+    rankLights();
   };
   applyLightBudget(ctx.profile.maxPointLights);
 
@@ -430,7 +440,7 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
   ]);
   applyLightBudget(ctx.profile.maxPointLights);
   const atmosphere = new Atmosphere(scene, ctx.profile.particleDensity);
-  const altarFires = new Set([altar.fire, altar2.fire, altar3.fire, altar4.fire]);
+  const altarFires = new Set([altar.fire, altar2.fire, altar3.fire, altar4.fire, hall.altar.fire]);
 
   // ---------------------------------------------------------------------------------
   // Enemy placement
@@ -464,6 +474,8 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
     { id: 'rev_keep_a', type: 'ashen_revenant', position: A.keepSpawnA.clone(), yaw: 0.6 },
     { id: 'rev_keep_b', type: 'ashen_revenant', position: A.keepSpawnB.clone(), yaw: -2.2 },
     { id: 'rev_bough', type: 'ashen_revenant', position: A.treeSpawn.clone(), yaw: -1.2 },
+    hall.kingSpawn,
+    ...hall.knightSpawns,
   ];
   for (const sp of enemySpawns) for (const p of sp.patrol ?? []) p.y = Math.max(p.y, overworld.terrain.height(p.x, p.z));
 
@@ -473,7 +485,7 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
     region: 'Ashen Kingdom',
     playerStart: new Vector3(0, 0, -37),
     playerYaw: 0,
-    altars: [altar, altar2, altar3, altar4],
+    altars: [altar, altar2, altar3, altar4, hall.altar],
     chests,
     pickups,
     breakables,
@@ -482,10 +494,18 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
     atmosphere,
     overworld,
     gate,
+    hall,
     applyLightBudget,
     update(dt: number, cameraPos: Vector3, env: { night: number; wind: number }) {
+      budgetTimer -= dt;
+      if (budgetTimer <= 0) {
+        budgetTimer = 0.5;
+        lastCam.copy(cameraPos);
+        rankLights();
+      }
       atmosphere.update(dt, cameraPos, env.night);
-      for (const a of [altar, altar2, altar3, altar4]) a.update(dt);
+      for (const a of [altar, altar2, altar3, altar4, hall.altar]) a.update(dt);
+      hall.barrier.update(dt);
       for (const c of chests) c.update(dt);
       for (const p of pickups) p.update(dt);
       for (const f of fires) f.night = env.night;

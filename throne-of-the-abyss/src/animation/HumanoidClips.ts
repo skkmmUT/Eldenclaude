@@ -218,10 +218,14 @@ export function attackClip(a: AttackData, stance: 'heir' | 'revenant' | 'knight'
   const s = a.startup;
   const act = a.active;
   const total = s + act + a.recovery;
+  // Enemy swings travel through the target during the active window (where the hitbox
+  // is live) instead of mostly before it — otherwise wide sweeps could pass through the
+  // player while the hitbox is still off.
+  const enemy = a.kind === 'enemy';
   const keys: KeyDef[] = [
     { t: 0, pose: a.windup, ease: 'out' },
-    { t: s * 0.92, pose: a.windup, ease: 'snap' },
-    { t: s + Math.min(act, 0.12), pose: a.strike, ease: 'out' },
+    { t: enemy ? s * 0.97 : s * 0.92, pose: a.windup, ease: enemy ? 'inOut' : 'snap' },
+    { t: enemy ? s + act * 0.85 : s + Math.min(act, 0.12), pose: a.strike, ease: 'out' },
     { t: s + act + a.recovery * 0.35, pose: a.follow, ease: 'inOut' },
     { t: total, pose: idle },
   ];
