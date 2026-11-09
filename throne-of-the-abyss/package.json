@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "smoke": "node tools/smoke-test.mjs"
+    "smoke": "node tools/smoke-test.mjs",
+    "build:single": "tsc --noEmit && node tools/build-single.mjs"
   },
   "dependencies": {
     "@fontsource/cinzel": "5.2.8",
