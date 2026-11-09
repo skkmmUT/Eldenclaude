@@ -1,5 +1,7 @@
 import { ACESFilmicToneMapping, PCFSoftShadowMap, PerspectiveCamera, SRGBColorSpace, Scene, WebGLRenderer } from 'three';
+import type { Material } from 'three';
 import { PostFX } from './PostFX';
+import { setTextureAnisotropy } from './TextureFactory';
 import type { GraphicsProfile } from './GraphicsSettings';
 
 /** Owns the WebGL context, camera projection, resize handling and the post chain. */
@@ -41,12 +43,26 @@ export class GameRenderer {
     this.camera.updateProjectionMatrix();
     this.post.applyProfile(profile);
     // Shadow-receiving materials must recompile when shadows are toggled.
-    this.scene.traverse((o) => {
-      const m = (o as { material?: { needsUpdate: boolean } | Array<{ needsUpdate: boolean }> }).material;
-      if (!m) return;
-      (Array.isArray(m) ? m : [m]).forEach((x) => (x.needsUpdate = true));
-    });
+    this.syncMaterials();
     this.resize();
+  }
+
+  /**
+   * Per-profile material state: recompile for shadow toggles, and with MSAA turn
+   * alpha-tested cut-outs (leaves, grass, banners, cloth) into alpha-to-coverage so
+   * their edges are smoothed too. Also applies texture anisotropy.
+   */
+  syncMaterials(): void {
+    const a2c = this.profile.msaa > 0;
+    this.scene.traverse((o) => {
+      const m = (o as { material?: Material | Material[] }).material;
+      if (!m) return;
+      (Array.isArray(m) ? m : [m]).forEach((x) => {
+        if (x.alphaTest > 0) x.alphaToCoverage = a2c;
+        x.needsUpdate = true;
+      });
+    });
+    setTextureAnisotropy(Math.min(this.profile.anisotropy, this.renderer.capabilities.getMaxAnisotropy()));
   }
 
   resize(): void {

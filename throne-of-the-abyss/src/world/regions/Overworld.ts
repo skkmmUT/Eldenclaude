@@ -62,7 +62,8 @@ export function buildOverworld(scene: Scene, world: CollisionWorld, profile: Gra
       const f = i / (steps * 2);
       const z0 = cz + length / 2 - f * length;
       const rise = Math.sin(f * Math.PI);
-      const top = 0.2 + rise * (deckY - 0.2);
+      // Ends meet the bank: never lower than the ground there (no step down into a trench).
+      const top = Math.max(0.2 + rise * (deckY - 0.2), H(cx, z0) - 0.02);
       const segLen = length / (steps * 2) + 0.05;
       solidBox(b, cx, (top - 1.6) / 2, z0, width / 2, (top + 1.6) / 2, segLen / 2, mats.stone, false);
     }
@@ -71,19 +72,31 @@ export function buildOverworld(scene: Scene, world: CollisionWorld, profile: Gra
       for (let i = 0; i < steps * 2; i++) {
         const f = (i + 0.5) / (steps * 2);
         const z0 = cz + length / 2 - f * length;
-        const top = 0.2 + Math.sin(f * Math.PI) * (deckY - 0.2);
+        const top = Math.max(0.2 + Math.sin(f * Math.PI) * (deckY - 0.2), H(cx, z0) - 0.02);
         solidBox(b, cx + side * (width / 2 - 0.25), top + 0.5, z0, 0.25, 0.5, length / (steps * 2) / 2 + 0.02, mats.stone, false);
       }
     }
     // Arches and piers under the deck (visual)
     const arches = Math.max(2, Math.round(length / 12));
+    const deckTopAt = (z: number) => {
+      const f = Math.min(1, Math.max(0, (cz + length / 2 - z) / length));
+      return Math.max(0.2 + Math.sin(f * Math.PI) * (deckY - 0.2), H(cx, z) - 0.02);
+    };
     for (let i = 0; i < arches; i++) {
       const z0 = cz - length / 2 + ((i + 0.5) / arches) * length;
-      batch.add(archFrameGeometry(length / arches + 0.2, 3.2, length / arches - 2.2, 0.0, 1.8, width - 0.4), mats.stone, mat4(cx, -2.0, z0, 0, Math.PI / 2), true, true, 0.25);
+      // Arch tops stay under the lowest point of the deck above them.
+      let low = Infinity;
+      for (let k = 0; k <= 8; k++) low = Math.min(low, deckTopAt(z0 - length / arches / 2 + (k / 8) * (length / arches)));
+      batch.add(archFrameGeometry(length / arches + 0.2, 3.2, length / arches - 2.2, 0.0, 1.8, width - 0.4), mats.stone, mat4(cx, low - 0.1 - 3.2, z0, 0, Math.PI / 2), true, true, 0.25);
     }
     for (let i = 0; i <= arches; i++) {
       const z0 = cz - length / 2 + (i / arches) * length;
-      batch.add(rbox(width + 1.2, 4.2, 1.6), mats.stoneDark, mat4(cx, -0.9, z0), true, true, 0.25);
+      // Piers stop just under the deck and are solid (they stand out past the parapets).
+      const f = (cz + length / 2 - z0) / length;
+      const deckTop = Math.max(0.2 + Math.sin(f * Math.PI) * (deckY - 0.2), H(cx, z0) - 0.02);
+      const top = deckTop - 0.12;
+      const bottom = -3;
+      solidBox(b, cx, (top + bottom) / 2, z0, width / 2 + 0.6, (top - bottom) / 2, 0.8, mats.stoneDark, false);
     }
     return north;
   };

@@ -1,4 +1,5 @@
-import { Vector2, type PerspectiveCamera, type Scene, type WebGLRenderer } from 'three';
+import { HalfFloatType, Vector2, WebGLRenderTarget, type PerspectiveCamera, type Scene, type WebGLRenderer } from 'three';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -57,7 +58,8 @@ const GradeShader = {
 };
 
 /**
- * Post-processing chain: scene → bloom → tone-map/sRGB → grade → AA.
+ * Post-processing chain: scene (MSAA) → ambient occlusion → bloom → tone-map/sRGB →
+ * grade → post AA (FXAA/SMAA catches shader and alpha aliasing that MSAA misses).
  * Rebuilt whenever the graphics profile changes.
  */
 export class PostFX {
@@ -66,6 +68,7 @@ export class PostFX {
   private bloom: UnrealBloomPass | null = null;
   readonly grade: ShaderPass;
   private aaPass: ShaderPass | SMAAPass | null = null;
+  private ao: GTAOPass | null = null;
   private width = 1;
   private height = 1;
   private pixelRatio = 1;
@@ -84,10 +87,23 @@ export class PostFX {
 
   private build(): void {
     const old = this.composer;
-    this.composer = new EffectComposer(this.renderer);
+    // Half-float target keeps HDR for bloom; `samples` turns on hardware MSAA.
+    const target = new WebGLRenderTarget(Math.max(1, this.width), Math.max(1, this.height), {
+      type: HalfFloatType,
+      samples: this.profile.msaa,
+    });
+    this.composer = new EffectComposer(this.renderer, target);
     old.dispose();
     this.renderPass = new RenderPass(this.scene, this.camera);
     this.composer.addPass(this.renderPass);
+    this.ao = null;
+    if (this.profile.ambientOcclusion) {
+      this.ao = new GTAOPass(this.scene, this.camera, Math.max(1, this.width), Math.max(1, this.height));
+      this.ao.blendIntensity = 0.85;
+      this.ao.updateGtaoMaterial({ radius: 0.9, distanceExponent: 1.4, thickness: 1.2, scale: 1.0, samples: 12 });
+      this.ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
+      this.composer.addPass(this.ao);
+    }
     this.bloom = null;
     if (this.profile.bloom) {
       this.bloom = new UnrealBloomPass(new Vector2(256, 256), this.profile.bloomStrength, 0.4, 0.92);
@@ -119,6 +135,7 @@ export class PostFX {
     this.composer.setPixelRatio(pixelRatio);
     this.composer.setSize(width, height);
     if (this.bloom) this.bloom.resolution.set(width * pixelRatio * 0.5, height * pixelRatio * 0.5);
+    this.ao?.setSize(width * pixelRatio, height * pixelRatio);
     if (this.aaPass instanceof ShaderPass) {
       this.aaPass.uniforms.resolution.value.set(1 / (width * pixelRatio), 1 / (height * pixelRatio));
     }

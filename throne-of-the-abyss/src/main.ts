@@ -6,6 +6,7 @@ import '@fontsource/cormorant-garamond/500.css';
 import '@fontsource/cormorant-garamond/400-italic.css';
 import '@fontsource/cormorant-garamond/500-italic.css';
 import './ui/styles.css';
+import { Raycaster, Vector3 } from 'three';
 import { Game } from '@/core/Game';
 import type { QualityPreset } from '@/render/GraphicsSettings';
 
@@ -28,7 +29,8 @@ function boot(): void {
       skipTitle: params.has('skipTitle'),
     });
     game.start();
-    (window as unknown as { __TOA: unknown }).__TOA = { game };
+    // Test mode also exposes a few three.js classes for geometry checks in automated tests.
+    (window as unknown as { __TOA: unknown }).__TOA = params.has('test') ? { game, three: { Raycaster, Vector3 } } : { game };
     requestAnimationFrame(() => loading.classList.add('done'));
   } catch (err) {
     console.error(err);

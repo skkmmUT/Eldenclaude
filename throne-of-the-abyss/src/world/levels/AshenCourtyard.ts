@@ -22,6 +22,7 @@ import { Fire } from '../Fire';
 import { SigilAltar } from '../SigilAltar';
 import { Chest } from '../Chest';
 import { buildThroneHall, type ThroneHall } from './ThroneHall';
+import { WORLD, riverZ } from '../terrain/WorldLayout';
 import type { ItemGrant } from '@/items/Grants';
 
 const GRANT_COLORS: Record<ItemGrant['type'], string> = { weapon: '#ffe0a8', armor: '#d8d0c0', accessory: '#ffd27a', spell: '#b48aff' };
@@ -476,6 +477,22 @@ export function buildAshenCourtyard(ctx: GameContext): LevelInstance {
     { id: 'rev_bough', type: 'ashen_revenant', position: A.treeSpawn.clone(), yaw: -1.2 },
     hall.kingSpawn,
     ...hall.knightSpawns,
+    // Roaming the open kingdom: sentries at landmarks.
+    ...[
+      ['rev_field_arch', 76, -222, 2.4],
+      ['rev_pilgrim_arch', -112, -114, -0.8],
+      ['rev_watchtower', -54, riverZ(-60) + 16, 1.2],
+      ['rev_north_wall', -36, 114, Math.PI],
+      ['rev_north_wall_b', -48, 116, Math.PI],
+      ['rev_mirror_lake', 108, -132, 2.4],
+      ['rev_eastern_ford', WORLD.bridges[1].x + 4, riverZ(WORLD.bridges[1].x) + 30, Math.PI],
+      ['rev_petals', 34, 104, -2.2],
+    ].map(([id, x, z, yaw]) => ({
+      id: id as string,
+      type: 'ashen_revenant',
+      position: new Vector3(x as number, overworld.terrain.height(x as number, z as number), z as number),
+      yaw: yaw as number,
+    })),
   ];
   for (const sp of enemySpawns) for (const p of sp.patrol ?? []) p.y = Math.max(p.y, overworld.terrain.height(p.x, p.z));
 

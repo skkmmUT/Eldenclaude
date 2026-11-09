@@ -172,7 +172,7 @@ html, body {
   background: linear-gradient(90deg, transparent, var(--gold), transparent);
 }
 
-.toasts { position: absolute; right: 30px; top: 30%; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+.toasts { position: absolute; right: 30px; top: 262px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
 .toast {
   padding: 8px 18px; background: var(--panel); border-left: 2px solid var(--gold);
   font: 600 14px var(--display); letter-spacing: 0.05em; animation: toast 3.4s ease forwards;
@@ -180,7 +180,7 @@ html, body {
 .toast small { display: block; font: italic 400 13px var(--serif); color: var(--text-dim); letter-spacing: 0; }
 @keyframes toast { 0% { opacity: 0; transform: translateX(20px); } 10%, 80% { opacity: 1; transform: none; } 100% { opacity: 0; } }
 
-.fps { position: absolute; right: 10px; top: 8px; font: 12px monospace; color: #8f8; text-shadow: 0 1px 1px #000; display: none; }
+.fps { position: absolute; right: 230px; top: 8px; font: 12px monospace; color: #8f8; text-shadow: 0 1px 1px #000; display: none; }
 .hint-pointer {
   position: absolute; left: 50%; top: 14px; transform: translateX(-50%); padding: 6px 16px; font: 600 12px var(--display);
   letter-spacing: 0.1em; background: var(--panel); border: 1px solid var(--gold-faint); color: var(--text-dim); display: none;
@@ -300,3 +300,9 @@ html, body {
   .banner .main { font-size: 30px; }
   .cols { grid-template-columns: 1fr; }
 }
+
+/* Minimap (top-right) */
+.minimap { position: absolute; right: 26px; top: 24px; width: 184px; height: 184px; pointer-events: none; }
+.minimap canvas { display: block; border-radius: 50%; }
+.minimap .mm-ring { position: absolute; inset: -4px; border-radius: 50%; border: 2px solid rgba(216, 178, 90, 0.75); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 4px 18px rgba(0, 0, 0, 0.55); }
+.minimap .mm-label { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); margin-top: 10px; white-space: nowrap; font: 600 12px var(--display); letter-spacing: 0.12em; color: #e9dfc8; text-shadow: 0 1px 3px #000, 0 0 8px #000; }

@@ -24,6 +24,9 @@ export interface MapData {
   lostEchoes: { x: number; z: number } | null;
   bosses: Array<{ x: number; z: number; alive: boolean }>;
   terrainImage?: HTMLCanvasElement;
+  /** Fog of war: explored cells over the whole world grid. */
+  explored?: { cells: Uint8Array; n: number; cell: number };
+  locations?: Array<{ x: number; z: number; name: string }>;
 }
 
 export interface MenuHost {
@@ -604,6 +607,27 @@ export class Menus {
         g.fill();
       }
     }
+    // Fog of war over unexplored land.
+    if (d.explored) {
+      const { cells, n, cell } = d.explored;
+      const half = (n * cell) / 2;
+      g.fillStyle = 'rgba(8,5,12,0.78)';
+      for (let j = 0; j < n; j++) {
+        for (let i = 0; i < n; i++) {
+          if (cells[j * n + i]) continue;
+          const wx0 = i * cell - half;
+          const wz0 = j * cell - half;
+          g.fillRect(X(wx0 + cell), Z(wz0 + cell), cell * s + 0.6, cell * s + 0.6);
+        }
+      }
+    }
+    for (const l of d.locations ?? []) {
+      g.fillStyle = 'rgba(240,226,190,0.95)';
+      g.font = '600 10px Cinzel, serif';
+      g.textAlign = 'center';
+      g.fillText(l.name, X(l.x), Z(l.z));
+      g.textAlign = 'left';
+    }
     for (const a of d.altars) {
       g.save();
       g.translate(X(a.x), Z(a.z));
@@ -709,6 +733,7 @@ export class Menus {
       el('div.section-title', { text: 'Graphics' }),
       el('div.setting', {}, [el('span', { text: 'Quality preset' }), quality, el('span')]),
       check('Show FPS', 'showFps'),
+      check('Minimap', 'minimap'),
       el('div.section-title', { text: 'Controls & camera', style: 'margin-top:18px' }),
       range('Mouse sensitivity', 'mouseSensitivity', 0.2, 3, 0.05, (v) => v.toFixed(2)),
       check('Invert camera Y', 'invertY'),

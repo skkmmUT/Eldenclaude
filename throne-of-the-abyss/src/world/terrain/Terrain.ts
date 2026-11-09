@@ -135,24 +135,40 @@ export class Terrain {
     cv.width = cv.height = px;
     const g = cv.getContext('2d')!;
     const img = g.createImageData(px, px);
-    const geo = this.mesh.geometry;
-    const col = geo.attributes.color;
+    const col = this.mesh.geometry.attributes.color;
     const n = this.segs + 1;
+    const rgb = [0, 0, 0];
     for (let y = 0; y < px; y++) {
       for (let x = 0; x < px; x++) {
         // map is mirrored in X so +X (west when facing north) appears on the left
         const wx = this.half - ((x + 0.5) / px) * this.size;
         const wz = this.half - ((y + 0.5) / px) * this.size;
-        const i = Math.min(this.segs, Math.max(0, Math.round((wx + this.half) / this.step)));
-        const j = Math.min(this.segs, Math.max(0, Math.round((wz + this.half) / this.step)));
-        const k = j * n + i;
-        const h = this.heights[k];
-        const water = h < WORLD.waterLevel - 0.15;
+        // Bilinear colour and height between grid vertices: smooth shores and fields.
+        const fx = Math.min(this.segs - 1e-4, Math.max(0, (wx + this.half) / this.step));
+        const fz = Math.min(this.segs - 1e-4, Math.max(0, (wz + this.half) / this.step));
+        const i = Math.floor(fx);
+        const j = Math.floor(fz);
+        const tx = fx - i;
+        const tz = fz - j;
+        const k00 = j * n + i;
+        const k10 = k00 + 1;
+        const k01 = k00 + n;
+        const k11 = k01 + 1;
+        const w00 = (1 - tx) * (1 - tz);
+        const w10 = tx * (1 - tz);
+        const w01 = (1 - tx) * tz;
+        const w11 = tx * tz;
+        const h = this.heights[k00] * w00 + this.heights[k10] * w10 + this.heights[k01] * w01 + this.heights[k11] * w11;
+        rgb[0] = col.getX(k00) * w00 + col.getX(k10) * w10 + col.getX(k01) * w01 + col.getX(k11) * w11;
+        rgb[1] = col.getY(k00) * w00 + col.getY(k10) * w10 + col.getY(k01) * w01 + col.getY(k11) * w11;
+        rgb[2] = col.getZ(k00) * w00 + col.getZ(k10) * w10 + col.getZ(k01) * w01 + col.getZ(k11) * w11;
+        // Soft shoreline: blend into water colour over 0.3 m of depth.
+        const wet = Math.min(1, Math.max(0, (WORLD.waterLevel - 0.05 - h) / 0.3));
         const shade = 0.75 + Math.min(0.35, Math.max(-0.2, h * 0.006));
         const o = (y * px + x) * 4;
-        img.data[o] = water ? 70 : Math.min(255, col.getX(k) * 255 * shade);
-        img.data[o + 1] = water ? 120 : Math.min(255, col.getY(k) * 255 * shade);
-        img.data[o + 2] = water ? 170 : Math.min(255, col.getZ(k) * 255 * shade);
+        img.data[o] = Math.min(255, rgb[0] * 255 * shade) * (1 - wet) + 70 * wet;
+        img.data[o + 1] = Math.min(255, rgb[1] * 255 * shade) * (1 - wet) + 120 * wet;
+        img.data[o + 2] = Math.min(255, rgb[2] * 255 * shade) * (1 - wet) + 170 * wet;
         img.data[o + 3] = 255;
       }
     }

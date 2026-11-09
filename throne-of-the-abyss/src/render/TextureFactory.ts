@@ -7,6 +7,18 @@ import { Rng } from '@/core/MathUtils';
  * functions' return values.
  */
 const cache = new Map<string, Texture>();
+let anisotropy = 4;
+
+/** Apply anisotropic filtering to every generated texture (and future ones). */
+export function setTextureAnisotropy(n: number): void {
+  anisotropy = n;
+  for (const t of cache.values()) {
+    if (t.anisotropy !== n) {
+      t.anisotropy = n;
+      t.needsUpdate = true;
+    }
+  }
+}
 
 function canvas(size: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const c = document.createElement('canvas');
@@ -20,7 +32,7 @@ function finish(c: HTMLCanvasElement, repeat = 1): Texture {
   t.repeat.set(repeat, repeat);
   t.colorSpace = SRGBColorSpace;
   t.minFilter = LinearMipmapLinearFilter;
-  t.anisotropy = 4;
+  t.anisotropy = anisotropy;
   return t;
 }
 

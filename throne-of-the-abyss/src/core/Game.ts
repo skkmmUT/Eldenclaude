@@ -33,6 +33,8 @@ import { Menus, type MapData, type MenuHost } from '@/ui/Menus';
 import { SaveSystem, SAVE_VERSION, type SaveData } from '@/save/SaveSystem';
 import type { AttributeId } from '@/rpg/Attributes';
 import { PlayerProgress } from '@/rpg/PlayerProgress';
+import { EXPLORE_CELL, EXPLORE_N, LOCATIONS } from '@/data/locations';
+import type { MinimapMarker } from '@/ui/Minimap';
 
 type Mode = 'title' | 'playing' | 'dead';
 
@@ -96,6 +98,11 @@ export class Game implements MenuHost {
   private lastSafePos = new Vector3();
   private gateBannerShown = false;
   private king!: Enemy;
+  private discovered = new Set<string>();
+  private explored = new Uint8Array(EXPLORE_N * EXPLORE_N);
+  private discoverTimer = 0;
+  private placeName = 'Ashen Kingdom';
+  private worldImageCache: HTMLCanvasElement | null = null;
   private kingKnights: Enemy[] = [];
   private kingSummons = 0;
   private titleTime = 0;
@@ -152,6 +159,7 @@ export class Game implements MenuHost {
     this.hud = new HUD(uiRoot);
     this.menus = new Menus(uiRoot, this);
     this.applySettings();
+    this.renderer.syncMaterials();
     this.setupPointer(canvas);
     this.resetWorldState();
     this.placePlayerAtStart(true);
@@ -359,6 +367,8 @@ export class Game implements MenuHost {
     this.level.gate.setOpen(false);
     this.level.hall.barrier.setSealed(false);
     this.kingSummons = 0;
+    this.discovered.clear();
+    this.explored.fill(0);
     this.clearLostEchoes();
     this.player.progress.attributes = { ...new PlayerProgress().attributes };
     this.player.progress.echoes = 0;
@@ -649,7 +659,8 @@ export class Game implements MenuHost {
     this.player.progress.echoes += amount;
     this.events.emit('echoes', { amount, total: this.player.progress.echoes });
     this.vfx.soulRelease(e.centerPoint(new Vector3()), e.isBoss ? '#ff4a6a' : '#ffb070', e.isBoss ? 160 : 50);
-    if (this.player.lockTarget === e) this.player.lockTarget = null;
+    // Keep fighting: the lock hops to the next nearest foe close by.
+    if (this.player.lockTarget === e) this.player.retarget(e);
     if (!e.data.respawns) {
       this.defeatedBosses.add(e.spawn.id);
       this.slowMoTimer = 1.6;
@@ -829,7 +840,8 @@ export class Game implements MenuHost {
         takenPickups: [...this.takenPickups],
         defeatedBosses: [...this.defeatedBosses],
         gateOpen: this.level.gate.open,
-        discoveredRegions: [this.level.region],
+        discoveredRegions: [...this.discovered],
+        explored: this.encodeExplored(),
         timeOfDay: this.env.time.hours,
         weather: this.env.weather.kind,
         readLore: [...this.readLore],
@@ -860,6 +872,8 @@ export class Game implements MenuHost {
       this.bossIntroDone.add(id);
     });
     this.level.gate.setOpen(d.world.gateOpen);
+    (d.world.discoveredRegions ?? []).forEach((id) => LOCATIONS.some((l) => l.id === id) && this.discovered.add(id));
+    if (d.world.explored) this.decodeExplored(d.world.explored);
     this.refreshThroneAltar();
     if (typeof d.world.timeOfDay === 'number') this.env.time.set(d.world.timeOfDay);
     if (d.world.weather) this.env.weather.set(d.world.weather as WeatherKind, true);
@@ -927,9 +941,11 @@ export class Game implements MenuHost {
       bounds: [-560, -560, 560, 560],
       terrainImage: this.mapImage ??= this.level.overworld.terrain.mapImage(560),
       player: { x: this.player.position.x, z: this.player.position.z, yaw: this.player.facing },
-      altars: this.level.altars.map((a) => ({ x: a.position.x, z: a.position.z, kindled: a.kindled, name: a.name })),
+      altars: this.level.altars.filter((a) => a !== this.level.hall.altar || this.throneUnlocked).map((a) => ({ x: a.position.x, z: a.position.z, kindled: a.kindled, name: a.name })),
       lostEchoes: this.lostEchoes ? { x: this.lostEchoes.position.x, z: this.lostEchoes.position.z } : null,
       bosses: this.enemies.filter((e) => e.isBoss).map((e) => ({ x: e.spawn.position.x, z: e.spawn.position.z, alive: !this.defeatedBosses.has(e.spawn.id) })),
+      explored: { cells: this.explored, n: EXPLORE_N, cell: EXPLORE_CELL },
+      locations: LOCATIONS.filter((l) => this.discovered.has(l.id)).map((l) => ({ x: l.x, z: l.z, name: l.name })),
     };
   }
 
@@ -1000,6 +1016,7 @@ export class Game implements MenuHost {
       if (this.player.motor.grounded && !this.player.dead) this.lastSafePos.copy(this.player.position);
       this.checkGateThreshold();
       this.updateThroneHall();
+      this.updateExploration(dt);
     }
 
     if (this.mode === 'dead') {
@@ -1040,6 +1057,7 @@ export class Game implements MenuHost {
     this.renderer.post.grade.uniforms.uAberration.value = this.time.inHitStop ? 0.006 : 0;
     if (render) {
       this.hud.update(realDt, this.player, this.enemies, this.renderer.camera);
+      this.updateMinimap(realDt);
       this.renderer.render(realDt);
     }
   }
@@ -1059,6 +1077,122 @@ export class Game implements MenuHost {
         }
       }
     }
+  }
+
+  // ===================================================================================
+  // Open world: discovery, exploration, minimap
+  // ===================================================================================
+  private updateExploration(dt: number): void {
+    if (this.mode !== 'playing') return;
+    const p = this.player.position;
+    // Reveal map cells around the player (fog of war on the big map).
+    const half = this.level.overworld.terrain.size / 2;
+    const ci = Math.floor((p.x + half) / EXPLORE_CELL);
+    const cj = Math.floor((p.z + half) / EXPLORE_CELL);
+    for (let dj = -2; dj <= 2; dj++) {
+      for (let di = -2; di <= 2; di++) {
+        if (di * di + dj * dj > 5) continue;
+        const i = ci + di;
+        const j = cj + dj;
+        if (i >= 0 && j >= 0 && i < EXPLORE_N && j < EXPLORE_N) this.explored[j * EXPLORE_N + i] = 1;
+      }
+    }
+    this.discoverTimer -= dt;
+    if (this.discoverTimer > 0) return;
+    this.discoverTimer = 0.4;
+    let here: (typeof LOCATIONS)[number] | null = null;
+    let bestD = Infinity;
+    for (const l of LOCATIONS) {
+      const d = Math.hypot(p.x - l.x, p.z - l.z);
+      if (d > l.r) continue;
+      // Smaller places win over the large areas that contain them.
+      if (l.r < bestD) {
+        bestD = l.r;
+        here = l;
+      }
+    }
+    this.placeName = here ? here.name : 'Ashen Kingdom';
+    if (here && !this.discovered.has(here.id)) {
+      this.discovered.add(here.id);
+      if (!this.cinematic) this.hud.showBanner(here.name.toUpperCase(), 'Place discovered', 'area', 3.2);
+      this.autosave();
+    }
+  }
+
+  private encodeExplored(): string {
+    const bytes = new Uint8Array(Math.ceil(this.explored.length / 8));
+    this.explored.forEach((v, i) => {
+      if (v) bytes[i >> 3] |= 1 << (i & 7);
+    });
+    let s = '';
+    bytes.forEach((b) => (s += String.fromCharCode(b)));
+    return btoa(s);
+  }
+
+  private decodeExplored(b64: string): void {
+    try {
+      const s = atob(b64);
+      for (let i = 0; i < this.explored.length; i++) this.explored[i] = (s.charCodeAt(i >> 3) >> (i & 7)) & 1;
+    } catch {
+      this.explored.fill(0);
+    }
+  }
+
+  /** Top-down world picture (terrain + buildings), 1 px per metre, mirrored like the map. */
+  private worldImage(): HTMLCanvasElement {
+    if (this.worldImageCache) return this.worldImageCache;
+    const terrain = this.level.overworld.terrain;
+    const px = terrain.size;
+    const cv = terrain.mapImage(px);
+    const g = cv.getContext('2d')!;
+    const half = terrain.size / 2;
+    const X = (x: number) => half - x;
+    const Z = (z: number) => half - z;
+    for (const c of this.world.all()) {
+      if (c.tag === 'tree') continue;
+      if (c.kind === 'box') {
+        if (c.maxY <= 0.01 || c.maxX - c.minX > 70) continue;
+        const rel = c.maxY - Math.max(0, terrain.height((c.minX + c.maxX) / 2, (c.minZ + c.maxZ) / 2));
+        const h = Math.min(1, Math.max(0, rel) / 8);
+        g.fillStyle = `rgba(${150 + h * 70},${138 + h * 60},${128 + h * 50},${0.55 + h * 0.4})`;
+        g.fillRect(X(c.maxX), Z(c.maxZ), c.maxX - c.minX, c.maxZ - c.minZ);
+      } else {
+        g.fillStyle = 'rgba(200,186,170,0.85)';
+        g.beginPath();
+        g.arc(X(c.x), Z(c.z), Math.max(0.8, c.radius), 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+    this.worldImageCache = cv;
+    return cv;
+  }
+
+  private updateMinimap(dt: number): void {
+    const mm = this.hud.minimap;
+    const show = this.mode !== 'title' && this.settings.minimap;
+    mm.setVisible(show);
+    if (!show) return;
+    if (!mm.hasBase) mm.setBase(this.worldImage(), this.level.overworld.terrain.size);
+    const p = this.player.position;
+    const markers: MinimapMarker[] = [];
+    for (const a of this.level.altars) {
+      if (a === this.level.hall.altar && !this.throneUnlocked) continue;
+      markers.push({ x: a.position.x, z: a.position.z, kind: a.kindled ? 'altarLit' : 'altar' });
+    }
+    for (const e of this.enemies) {
+      if (e.dead || e.asleep) continue;
+      const d = Math.hypot(e.position.x - p.x, e.position.z - p.z);
+      if (e.isBoss) {
+        if (d < 160) markers.push({ x: e.position.x, z: e.position.z, kind: 'boss' });
+      } else if (d < 80) markers.push({ x: e.position.x, z: e.position.z, kind: e.aggro ? 'enemyAlert' : 'enemy' });
+    }
+    if (this.lostEchoes) markers.push({ x: this.lostEchoes.position.x, z: this.lostEchoes.position.z, kind: 'echoes' });
+    for (const l of LOCATIONS) {
+      // The place you are in is named under the minimap, not on top of your arrow.
+      if (!this.discovered.has(l.id) || l.kind === 'castle' || l.name === this.placeName) continue;
+      markers.push({ x: l.x, z: l.z, kind: 'location', label: l.name });
+    }
+    mm.update(dt, { x: p.x, z: p.z, facing: this.player.facing, cameraYaw: this.camera.yaw, markers, place: this.placeName });
   }
 
   private checkGateThreshold(): void {

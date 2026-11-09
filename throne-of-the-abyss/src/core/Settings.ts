@@ -7,6 +7,7 @@ export interface GameSettings {
   cameraShake: number;
   damageNumbers: boolean;
   showFps: boolean;
+  minimap: boolean;
 }
 
 const KEY = 'throne_of_the_abyss_settings_v1';
@@ -17,6 +18,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   invertY: false,
   cameraShake: 1,
   damageNumbers: true,
+  minimap: true,
   showFps: false,
 };
 

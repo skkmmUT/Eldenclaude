@@ -255,8 +255,9 @@ export class CombatSystem {
     const facing = target.isFacing(from, 1.25);
     const involvesPlayer = target.faction === 'player' || attacker?.faction === 'player';
 
-    // Parry
-    if (target.parrying && h.parryable && facing && attacker) {
+    // Parry (bosses cannot be parried: against them only dodging and blocking work,
+    // so there are no ripostes on bosses either).
+    if (target.parrying && h.parryable && facing && attacker && !attacker.isBoss) {
       attacker.attack = null;
       attacker.trail.emitting = false;
       attacker.ripostableTimer = 2.3;
