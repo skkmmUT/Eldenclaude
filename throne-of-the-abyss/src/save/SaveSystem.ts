@@ -25,6 +25,8 @@ export interface SaveData {
     defeatedBosses: string[];
     gateOpen: boolean;
     discoveredRegions: string[];
+    /** Explored map cells (base64 bitset), for the map's fog of war. */
+    explored?: string;
     readLore: string[];
     timeOfDay?: number;
     weather?: string;

@@ -64,6 +64,10 @@ export function buildThroneHall(b: BuildCtx, ctx: GameContext, Y: number): Thron
   solidBox(b, 0, Y + 13, 66.6, 5.6, 5, 0.6); // lintel over the entrance
   // Fallen ribs of the vault lying across the floor.
   b.batch.add(rbox(14, 1.1, 1.3), m.stone, mat4(-9, Y + 0.4, 78, 0.1, 0.5, 0.05), true, true, 0.25);
+  // Its collision: a row of short cylinders along the fallen rib.
+  for (let k = -6.5; k <= 6.5; k += 1.3) {
+    world.addCylinder(-9 + Math.cos(0.5) * k, 78 - Math.sin(0.5) * k, 0.72, Y, Y + 1.05 + k * 0.05);
+  }
   rubble(b, 14, 84, 2.5, 10, 77);
   rubble(b, -14, 95, 2.5, 9, 78);
 

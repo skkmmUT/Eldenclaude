@@ -87,7 +87,9 @@ export class CharacterMotor {
         this.grounded = false; // jump
         this.airPeakY = p.y;
       } else {
-        const g = this.world.groundHeight(p.x, p.z, footR, p.y + this.stepHeight);
+        let g = this.world.groundHeight(p.x, p.z, footR, p.y + this.stepHeight);
+        // Rising terrain under the feet (steeper than a step but not a wall) lifts us.
+        g = Math.max(g, this.world.terrainHeight(p.x, p.z));
         if (g >= p.y - this.stepHeight - 0.05) {
           p.y = g; // follow stairs up and down
           this.velocity.y = 0;
@@ -109,6 +111,17 @@ export class CharacterMotor {
       }
     }
     const g = this.world.groundHeight(p.x, p.z, footR, Math.max(p.y, newY) + 0.01);
+    // The terrain is solid everywhere: never let the feet end up under its surface (the
+    // height-field is otherwise only a floor when approached from above).
+    const th = this.world.terrainHeight(p.x, p.z);
+    if (newY < th && th > g) {
+      p.y = th;
+      this.lastFallHeight = Math.max(0, this.airPeakY - th);
+      this.velocity.y = 0;
+      this.grounded = true;
+      this.justLanded = true;
+      return;
+    }
     if (newY <= g) {
       p.y = g;
       this.lastFallHeight = Math.max(0, this.airPeakY - g);

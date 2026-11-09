@@ -42,7 +42,7 @@ const check = (name, ok, detail = '') => {
   if (!ok) failures++;
 };
 
-const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = await chromium.launch({ args: ['--js-flags=--expose-gc', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errors = [];
 page.on('console', (m) => {
@@ -306,6 +306,38 @@ try {
   check('lock-on acquires target (Tab)', spell.locked);
   check('Abyssal Bolt spends mana and hits locked target', spell.manaSpent > 0 && spell.dmg > 0, JSON.stringify(spell));
   await shot('04_spell_lock');
+
+  const lockNearest = await ev(() => {
+    const p = g.player;
+    p.lockTarget = null;
+    const a = g.enemies.find((x) => x.spawn.id === 'rev_gate');
+    const b = g.enemies.find((x) => x.spawn.id === 'rev_graves');
+    for (const e of [a, b]) {
+      e.reset();
+      e.setPlayer(null);
+    }
+    // A quiet spot in the open world, away from every other foe.
+    const H = (x, z) => g.level.overworld.terrain.height(x, z);
+    T.place(-150, H(-150, -20) + 0.1, -20, 0);
+    // Far foe straight ahead of the camera, near foe behind the player.
+    a.motor.teleport(-150, H(-150, -8), -8);
+    b.motor.teleport(-148.5, H(-148.5, -24), -24);
+    g.simulate(0.1);
+    T.press('Tab');
+    const first = p.lockTarget === b ? 'near' : p.lockTarget === a ? 'far' : 'none';
+    // Killing the locked foe hops to the next one.
+    b.applyDamage(b.hp + 1, p);
+    g.simulate(0.1);
+    const after = p.lockTarget === a ? 'next' : String(p.lockTarget?.spawn?.id ?? 'none');
+    p.lockTarget = null;
+    for (const e of [a, b]) {
+      e.reset();
+      e.setPlayer(p);
+    }
+    return { first, after };
+  });
+  check('lock-on takes the nearest foe, not the one in front of the camera', lockNearest.first === 'near', JSON.stringify(lockNearest));
+  check('lock-on moves to the next foe when the target dies', lockNearest.after === 'next', JSON.stringify(lockNearest));
 
   // --- Item use ----------------------------------------------------------------------------
   const item = await ev(() => {
@@ -800,6 +832,33 @@ try {
   });
   check('the king counter-attacks when struck with his guard up', counter === 'fk_counter', String(counter));
 
+  const bossParry = await ev(() => {
+    const king = g.king;
+    T.heal();
+    king.motor.teleport(0, 2, 86);
+    king.attack = null;
+    king.state = 'defend';
+    T.place(0, 2.1, 83.4, 0);
+    king.faceTowards(g.player.position);
+    T.face(king.position);
+    const parried0 = counts.parried;
+    king.forceAttack('fk_overhead');
+    const d = king.attack.data;
+    let pressed = false;
+    while (king.attack && king.attack.time < d.startup + d.active + 0.05) {
+      if (!pressed && king.attack.time >= d.startup - 0.1) {
+        pressed = true;
+        T.press('KeyQ');
+      }
+      g.step(1 / 60, false);
+    }
+    const r = { parried: counts.parried - parried0, ripostable: king.ripostableTimer > 0, hpLost: g.player.hp < g.player.maxHp };
+    T.idle(5);
+    g.simulate(0.5);
+    return r;
+  });
+  check('bosses cannot be parried (dodge or block only, no ripostes)', bossParry.parried === 0 && !bossParry.ripostable && bossParry.hpLost, JSON.stringify(bossParry));
+
   const summon = await ev(() => {
     const king = g.king;
     for (const k of g.kingKnights) if (!k.dead) k.reset();
@@ -877,6 +936,124 @@ try {
   check('the Ashen Throne altar wakes after the king falls', victory.altarVisible && /Kindle/.test(victory.altarPrompt ?? '') && victory.objective, JSON.stringify(victory));
   await shot('11_throne_hall');
 
+  // --- Open world: falls, minimap, discovery -----------------------------------------------------
+  await ev(() => {
+    window.__fallWalk = (batch, batches) => {
+    const R = window.__TOA.three;
+    const meshes = [];
+    g.renderer.scene.traverse((o) => {
+      if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || !o.visible) return;
+      const m = o.material;
+      if (!m || m.transparent || m.isMeshBasicMaterial) return;
+      if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+      if (o.geometry.boundingSphere.radius > 4) meshes.push(o);
+    });
+    const ray = new R.Raycaster();
+    const down = new R.Vector3(0, -1, 0);
+    const o = new R.Vector3();
+    const top = (x, y, z) => {
+      o.set(x, y + 1.4, z);
+      ray.set(o, down);
+      ray.far = 60;
+      const h = ray.intersectObjects(meshes, false).find((h) => h.face && h.face.normal.clone().transformDirection(h.object.matrixWorld).y > 0.5);
+      return h ? h.point.y : null;
+    };
+    for (const e of g.enemies) e.setPlayer(null);
+    const p = g.player;
+    const terrain = g.level.overworld.terrain;
+    const A = g.level.overworld.anchors;
+    let seed = 777;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    const all = [];
+    const starts = all;
+    for (let i = 0; i < 40; i++) starts.push([rnd() * 500 - 250, rnd() * 500 - 250]);
+    for (let i = 0; i < 40; i++) starts.push([rnd() * 90 - 45, rnd() * 160 - 50]);
+    for (const v of [A.keepAltar, A.bridgeNorth, A.bridgeGuard, A.treeShrine, { x: 124, z: -104 }]) for (let k = 0; k < 8; k++) starts.push([v.x + rnd() * 30 - 15, v.z + rnd() * 30 - 15]);
+    let trials = 0;
+    const incidents = [];
+    const mine = all.filter((_, i) => i % batches === batch);
+    for (const [sx, sz] of mine) {
+      const gy = g.world.groundHeight(sx, sz, 0.4, 60);
+      if (!isFinite(gy) || gy > terrain.height(sx, sz) + 3.6) continue;
+      T.place(sx, gy + 0.05, sz, rnd() * Math.PI * 2);
+      p.restoreAll();
+      p.invulnerable = true;
+      g.simulate(0.1);
+      if (Math.abs(p.position.y - gy) > 1) continue;
+      trials++;
+      let bad = null;
+      for (let leg = 0; leg < 3 && !bad; leg++) {
+        p.facing = rnd() * Math.PI * 2;
+        g.camera.snapBehind(p.facing);
+        g.input.simulate('KeyW', true);
+        if (rnd() < 0.4) g.input.simulate('ShiftLeft', true);
+        for (let f = 0; f < 60 && !bad; f++) {
+          if (f === 30 && rnd() < 0.3) g.input.simulate('Space', true);
+          if (f === 32) g.input.simulate('Space', false);
+          g.step(1 / 60, false);
+          const pos = p.position;
+          if (pos.y < terrain.height(pos.x, pos.z) - 0.5) bad = ['under-terrain', +pos.x.toFixed(1), +pos.z.toFixed(1)];
+          else if (f % 6 === 0 && p.motor.grounded) {
+            const vt = top(pos.x, pos.y, pos.z);
+            if (vt !== null && pos.y < vt - 0.7) bad = ['under-surface', +pos.x.toFixed(1), +pos.z.toFixed(1)];
+          }
+        }
+        g.input.simulate('KeyW', false);
+        g.input.simulate('ShiftLeft', false);
+      }
+      if (bad) incidents.push(bad);
+    }
+    p.invulnerable = false;
+    for (const e of g.enemies) e.setPlayer(p);
+    return { trials, incidents };
+    };
+  });
+  const falls = { trials: 0, incidents: [] };
+  for (let batch = 0; batch < 4; batch++) {
+    const r = await ev((b) => {
+      const out = window.__fallWalk(b, 4);
+      window.gc?.(); // the walk's raycasts produce lots of short-lived garbage
+      return out;
+    }, batch);
+    falls.trials += r.trials;
+    falls.incidents.push(...r.incidents);
+  }
+  check('no falling through the world (random walks across castle, bridges, keep and fields)', falls.trials >= 100 && falls.incidents.length === 0, JSON.stringify(falls));
+
+  const roamers = await ev(() => g.enemies.filter((e) => /^rev_(field_arch|pilgrim_arch|watchtower|north_wall|mirror_lake|eastern_ford|petals)/.test(e.spawn.id)).map((e) => {
+    const h = g.level.overworld.terrain.height(e.spawn.position.x, e.spawn.position.z);
+    return { id: e.spawn.id, dry: h > g.world.waterLevel + 0.2, onGround: Math.abs(e.position.y - h) < 0.6 || e.dead };
+  }));
+  check('open-world sentries stand on dry land', roamers.length === 8 && roamers.every((r) => r.dry && r.onGround), JSON.stringify(roamers));
+
+  const discovery = await ev(() => {
+    T.heal();
+    for (const e of g.enemies) e.setPlayer(null);
+    const A = g.level.overworld.anchors;
+    T.place(A.bridgeNorth.x, A.bridgeNorth.y + 0.3, A.bridgeNorth.z - 8, 0);
+    g.simulate(1.0);
+    for (const e of g.enemies) e.setPlayer(g.player);
+    for (let i = 0; i < 4; i++) g.step(1 / 60, true);
+    const mm = document.querySelector('.minimap');
+    const cv = mm?.querySelector('canvas');
+    let painted = 0;
+    if (cv) {
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      for (let i = 3; i < d.length; i += 4 * 37) if (d[i] > 0) painted++;
+    }
+    return {
+      discovered: g.discovered.has('loc_crossing'),
+      label: mm?.querySelector('.mm-label')?.textContent,
+      visible: !!mm && getComputedStyle(mm).display !== 'none',
+      painted,
+      explored: g.explored.reduce((a, b) => a + b, 0),
+    };
+  });
+  check('minimap is shown and drawn (top-right circle)', discovery.visible && discovery.painted > 100, JSON.stringify(discovery));
+  check('places are discovered on arrival and named on the minimap', discovery.discovered && discovery.label === 'Ashen River Crossing', JSON.stringify(discovery));
+  check('walking reveals the map (fog of war)', discovery.explored > 5, JSON.stringify(discovery));
+  await shot('12_open_world_minimap');
+
   // --- Save, reload, continue ---------------------------------------------------------------------
   const saved = await ev(() => {
     g.player.progress.echoes = 4321;
@@ -889,10 +1066,10 @@ try {
     g.continueGame();
     g.simulate(0.5);
     const k = g.enemies.find((x) => x.spawn.id === 'elite_vaelor');
-    return { title, echoes: g.player.progress.echoes, kindled: g.level.altars[0].kindled, eliteDead: k.dead, gate: g.level.gate.open, level: g.player.progress.level, kingDead: g.king.dead, throneAltar: g.level.hall.altar.group.visible };
+    return { title, echoes: g.player.progress.echoes, kindled: g.level.altars[0].kindled, eliteDead: k.dead, gate: g.level.gate.open, level: g.player.progress.level, kingDead: g.king.dead, throneAltar: g.level.hall.altar.group.visible, discovered: g.discovered.has('loc_crossing'), explored: g.explored.reduce((a, b) => a + b, 0) };
   });
   check('title screen on fresh load', loaded.title === 'title');
-  check('continue restores progress', loaded.echoes === 4321 && loaded.kindled && loaded.eliteDead && loaded.gate && loaded.kingDead && loaded.throneAltar, JSON.stringify(loaded));
+  check('continue restores progress', loaded.echoes === 4321 && loaded.kindled && loaded.eliteDead && loaded.gate && loaded.kingDead && loaded.throneAltar && loaded.discovered && loaded.explored > 5, JSON.stringify(loaded));
 
   // --- Pause menu & graphics presets ----------------------------------------------------------------
   await ev(() => {
@@ -906,7 +1083,9 @@ try {
       g.settings.quality = q;
       g.applySettings();
       g.step(1 / 60, true);
-      return g.renderer.profile.preset === q;
+      const rt = g.renderer.post.composer.renderTarget1;
+      const wantMsaa = g.renderer.profile.msaa;
+      return g.renderer.profile.preset === q && rt.samples === wantMsaa && (q === 'low' || wantMsaa >= 4);
     }, q);
     check(`graphics preset ${q}`, ok);
   }

@@ -697,8 +697,21 @@ export class Player extends Character {
     if (this.lockTarget) {
       const t = this.lockTarget.position;
       this.facing = yawFromDir(t.x - this.position.x, t.z - this.position.z);
-    } else if (this.computeMoveDir() > 0.2) {
-      this.facing = yawFromDir(this.moveDir.x, this.moveDir.z);
+    } else {
+      if (this.computeMoveDir() > 0.2) this.facing = yawFromDir(this.moveDir.x, this.moveDir.z);
+      // Soft aim: without a lock, actions turn toward the nearest foe close in front.
+      let best: Character | null = null;
+      let bestD = 3.8;
+      for (const c of this.lockCandidates()) {
+        const dx = c.position.x - this.position.x;
+        const dz = c.position.z - this.position.z;
+        const d = Math.hypot(dx, dz);
+        if (d >= bestD || Math.abs(c.position.y - this.position.y) > 2) continue;
+        if (Math.abs(angleDelta(this.facing, yawFromDir(dx, dz))) > 1.05) continue;
+        best = c;
+        bestD = d;
+      }
+      if (best) this.facing = yawFromDir(best.position.x - this.position.x, best.position.z - this.position.z);
     }
   }
 
@@ -835,7 +848,8 @@ export class Player extends Character {
   // ===================================================================================
   private tryCritical(): boolean {
     for (const c of this.ctx.combat.characters) {
-      if (c.faction === this.faction || c.dead) continue;
+      // No critical strikes (ripostes, backstabs) on bosses.
+      if (c.faction === this.faction || c.dead || c.isBoss) continue;
       const victim = c as unknown as Character & CriticalVictim;
       if (typeof victim.enterCriticalVictim !== 'function') continue;
       const dx = c.position.x - this.position.x;
@@ -1179,17 +1193,39 @@ export class Player extends Character {
     return this.ctx.combat.characters.filter((c) => c.faction !== this.faction && !c.dead);
   }
 
+  /**
+   * Lock-on acquisition picks the NEAREST visible foe (any direction); the camera's
+   * view direction only breaks near-ties.
+   */
   private scoreCandidate(c: Character, camYaw: number): number {
     const dx = c.position.x - this.position.x;
     const dz = c.position.z - this.position.z;
     const dist = Math.hypot(dx, dz);
     if (dist > 26) return -Infinity;
     const ang = Math.abs(angleDelta(camYaw, yawFromDir(dx, dz)));
-    if (ang > 1.1) return -Infinity;
     const eye = this.tmp.set(this.position.x, this.position.y + 1.5, this.position.z);
     const p = c.lockPoint(this.tmp2);
     if (!this.ctx.world.lineOfSight(eye.x, eye.y, eye.z, p.x, p.y, p.z)) return -Infinity;
-    return -(ang * 8 + dist * 0.35);
+    return -(dist + ang * 0.4);
+  }
+
+  /** After a kill: lock onto the next nearest foe close by, or release the lock. */
+  retarget(dead: Character): void {
+    this.lockTarget = this.nearestLockable(dead, 14);
+  }
+
+  private nearestLockable(exclude: Character | null = null, maxDist = 26): Character | null {
+    let best: Character | null = null;
+    let bestScore = -Infinity;
+    for (const c of this.lockCandidates()) {
+      if (c === exclude || c.distanceTo(this) > maxDist) continue;
+      const s = this.scoreCandidate(c, this.ctx.camera.yaw);
+      if (s > bestScore) {
+        bestScore = s;
+        best = c;
+      }
+    }
+    return best;
   }
 
   private updateLockOn(dt: number): void {
@@ -1198,22 +1234,19 @@ export class Player extends Character {
     if (inp.pressed('LockOn')) {
       if (this.lockTarget) this.lockTarget = null;
       else {
-        let best: Character | null = null;
-        let bestScore = -Infinity;
-        for (const c of this.lockCandidates()) {
-          const s = this.scoreCandidate(c, camYaw);
-          if (s > bestScore) {
-            bestScore = s;
-            best = c;
-          }
-        }
+        const best = this.nearestLockable();
         this.lockTarget = best;
         if (!best) this.ctx.camera.snapBehind(this.facing);
       }
     }
+    void camYaw;
     const t = this.lockTarget;
     if (!t) return;
-    if (t.dead || t.distanceTo(this) > 30) {
+    if (t.dead) {
+      this.retarget(t);
+      return;
+    }
+    if (t.distanceTo(this) > 30) {
       this.lockTarget = null;
       return;
     }

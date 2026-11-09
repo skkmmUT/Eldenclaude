@@ -1,6 +1,7 @@
 import { Vector3, type PerspectiveCamera } from 'three';
 import type { Player } from '@/characters/player/Player';
 import type { Enemy } from '@/characters/enemies/Enemy';
+import { Minimap } from './Minimap';
 import { el } from './dom';
 
 interface EnemyWidget {
@@ -46,6 +47,7 @@ export class HUD {
   private lastEchoes = 0;
   private echoDeltaTimer: number | null = null;
   boss: Enemy | null = null;
+  minimap!: Minimap;
   private bossAccum = 0;
   private bossAccumTimer = 0;
   showDamageNumbers = true;
@@ -61,6 +63,7 @@ export class HUD {
     this.banner.append(el('div.band', {}, [el('div.main'), el('div.sub')]));
     this.root = el('div.hud', {}, [bars, slots, echoes, this.reticle, this.bossRoot, this.prompt, this.banner, this.toasts, this.fps, this.pointerHint]);
     parent.append(this.root);
+    this.minimap = new Minimap(this.root);
   }
 
   private bar(kind: 'hp' | 'mp' | 'st') {

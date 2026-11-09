@@ -11,6 +11,12 @@ export interface GraphicsProfile {
   bloom: boolean;
   bloomStrength: number;
   antialias: 'none' | 'fxaa' | 'smaa';
+  /** Hardware multisampling of the scene render target (0 = off). Smooths geometry edges. */
+  msaa: number;
+  /** Max anisotropic filtering for surface textures (sharp floors at grazing angles). */
+  anisotropy: number;
+  /** Screen-space ambient occlusion (soft contact shadows in corners and under objects). */
+  ambientOcclusion: boolean;
   /** Multiplier on ambient/combat particle counts. */
   particleDensity: number;
   /** Character outline pass (inverted hull). */
@@ -40,7 +46,10 @@ export const GRAPHICS_PRESETS: Record<QualityPreset, GraphicsProfile> = {
     shadowMapSize: 512,
     bloom: false,
     bloomStrength: 0,
-    antialias: 'none',
+    antialias: 'fxaa',
+    msaa: 0,
+    anisotropy: 4,
+    ambientOcclusion: false,
     particleDensity: 0.35,
     outlines: false,
     maxPointLights: 2,
@@ -59,7 +68,10 @@ export const GRAPHICS_PRESETS: Record<QualityPreset, GraphicsProfile> = {
     shadowMapSize: 1024,
     bloom: true,
     bloomStrength: 0.3,
-    antialias: 'fxaa',
+    antialias: 'none',
+    msaa: 4,
+    anisotropy: 8,
+    ambientOcclusion: false,
     particleDensity: 0.6,
     outlines: false,
     maxPointLights: 4,
@@ -78,7 +90,10 @@ export const GRAPHICS_PRESETS: Record<QualityPreset, GraphicsProfile> = {
     shadowMapSize: 2048,
     bloom: true,
     bloomStrength: 0.35,
-    antialias: 'fxaa',
+    antialias: 'smaa',
+    msaa: 4,
+    anisotropy: 16,
+    ambientOcclusion: true,
     particleDensity: 1,
     outlines: false,
     maxPointLights: 6,
@@ -98,6 +113,9 @@ export const GRAPHICS_PRESETS: Record<QualityPreset, GraphicsProfile> = {
     bloom: true,
     bloomStrength: 0.4,
     antialias: 'smaa',
+    msaa: 4,
+    anisotropy: 16,
+    ambientOcclusion: true,
     particleDensity: 1.5,
     outlines: false,
     maxPointLights: 8,
